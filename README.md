@@ -25,6 +25,14 @@ Loading from a specific commit means nothing changes until you pull and reload o
 
 ## What it does today
 
+- One list for every type: this site's logins first, then recent items, then everything (filter chips: All, Logins,
+  Cards, Identities, Notes). The selected row (this site's best match when Ward opens; any row you click) keeps its
+  one-click actions visible; other rows show them on hover: copy username, password, one-time code (shown with a
+  countdown), card number and security code, email, plus Fill where it can fill. Clicking a row only selects it.
+- Right-click a field on a page: Ward > a login for this site > Fill / Copy username / password / one-time code.
+- Copied passwords, codes and card details are cleared from the clipboard after 30 s (setting).
+- Settings: Account (log out per vault), saving offers, copying, locking, Touch ID, appearance (follows the system).
+
 - Logins: search, fill (popup, in-page menu under the login field, Cmd+Shift+L), copy, add, edit, delete
 - TOTP codes, passkeys (stored in Bitwarden's format, so the official apps can use them), save/update prompts
 - Several vaults in one list (Vaultwarden, bitwarden.com, bitwarden.eu)

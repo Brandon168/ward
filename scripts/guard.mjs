@@ -18,11 +18,13 @@ const update = process.argv.includes('--update');
 
 // Files the extension ships (keep in step with pack.sh).
 const SHIPPED = ['manifest.json', 'popup.html', 'popup.css', 'popup.js', 'theme.js', 'bw.js', 'background.js', 'bridge.js',
-  'page.js', 'inpage.js', 'autofill.js', 'coord.js', 'touch.js', 'sync.js', 'formfill.js', 'icons', 'vendor', 'LICENSE'];
+  'page.js', 'inpage.js', 'autofill.js', 'coord.js', 'touch.js', 'sync.js', 'formfill.js', 'offscreen.html', 'offscreen.js', 'icons', 'vendor', 'LICENSE'];
 const NOT_SHIPPED = new Set(['vendor/psl.sh', 'vendor/public_suffix_list.dat']);
 // Scripts injected into web pages: they run on every site, so they get the tightest budget.
 const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
-const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 200_000 };
+// pageScriptsBytes is what every page pays and stays strict. firstPartyJsBytes is a sanity cap: popup.js parses in
+// ~1.4 ms (measured 2026-11-06), so the popup is not split; raise this only with a reason in the commit.
+const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 230_000 };
 
 const read = (f) => readFileSync(join(root, f), 'utf8');
 const sha256 = (f) => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');

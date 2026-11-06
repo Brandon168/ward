@@ -6,7 +6,10 @@
       "scripting",
       "unlimitedStorage",
       "idle",
-      "alarms"
+      "alarms",
+      "contextMenus",
+      "offscreen",
+      "clipboardWrite"
     ],
     "optional_permissions": [],
     "host_permissions": [
@@ -73,6 +76,7 @@
     }
   },
   "urls": [
+    "http://www.w3.org",
     "https://${body}",
     "https://${requested}",
     "https://${rpid}",
@@ -96,6 +100,8 @@
     "icons/48.png",
     "inpage.js",
     "manifest.json",
+    "offscreen.html",
+    "offscreen.js",
     "page.js",
     "popup.css",
     "popup.html",

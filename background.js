@@ -153,14 +153,14 @@ const openAccounts = async () => {
   return list.filter((a) => s[`${a.id}:key`]);
 };
 const syncQuietly = (id, opts) => syncOpenVault(local, session, id, opts).catch((e) => console.warn('Ward sync', id, e?.message));
-const hub = typeof WebSocket === 'function' && chrome.alarms // the test harness has neither alarms nor a server
+const hub = typeof WebSocket === 'function' && chrome.alarms?.onAlarm // the test harness has no alarm events and no server
   ? liveHub({ open: { accounts: openAccounts, tokens: (id) => freshTokens(local, id) }, onChange: (id) => syncQuietly(id, { force: true }) })
   : null;
 let hubTimer;
 const refreshHub = () => { clearTimeout(hubTimer); hubTimer = setTimeout(() => hub?.refresh().catch(() => {}), 1000); };
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'session' && Object.keys(changes).some((k) => /:key$/.test(k))) refreshHub(); });
-chrome.alarms?.get('ward-sync').then((x) => x || chrome.alarms.create('ward-sync', { periodInMinutes: SYNC_EVERY_MIN }));
-chrome.alarms?.onAlarm.addListener(async (x) => {
+chrome.alarms?.get?.('ward-sync').then((x) => x || chrome.alarms.create('ward-sync', { periodInMinutes: SYNC_EVERY_MIN }));
+chrome.alarms?.onAlarm?.addListener(async (x) => {
   if (x.name !== 'ward-sync') return;
   for (const a of await openAccounts()) await syncQuietly(a.id);
   refreshHub();
@@ -177,8 +177,82 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   if (!item) return chrome.action.openPopup().catch(() => {}); // locked or nothing saved: show why
   if (version !== stateVersion) return;
   const code = item.totp ? (await bw.totp(item.totp).catch(() => null))?.code || null : null;
-  if (await fillTab(tab.id, item, v.equiv.get(item.a), code, async () => version === stateVersion) && version === stateVersion) await markUsed(item, version);
+  if (await fillTab(tab.id, item, v.equiv.get(item.a), code, async () => version === stateVersion) && version === stateVersion) {
+    await markUsed(item, version);
+    if (code) scheduleClipboardClear(); // the page put the one-time code on the clipboard
+  }
 });
+
+// --- clipboard (Ward): copy from the right-click menu, and clear copied secrets after 30 s -----------------------
+// The service worker has no clipboard; a short-lived offscreen document does the write. Clearing is unconditional
+// (Ward can't read the clipboard without another permission), so it is a setting: Settings > Clear copied ... 30 s.
+let clipboardJob = Promise.resolve();
+function clipboardWrite(text) {
+  const job = clipboardJob.catch(() => {}).then(async () => {
+    if (!chrome.offscreen) return false;
+    if (!(await chrome.offscreen.hasDocument?.())) {
+      await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['CLIPBOARD'], justification: 'Copy and clear passwords and one-time codes' });
+    }
+    const r = await chrome.runtime.sendMessage({ wardOffscreen: 'clipboard', text }).catch(() => null);
+    await chrome.offscreen.closeDocument().catch(() => {});
+    return !!r?.ok;
+  });
+  clipboardJob = job;
+  return job;
+}
+async function scheduleClipboardClear() {
+  if ((await local.get('clearClipboard')).clearClipboard === false) return;
+  chrome.alarms?.create('ward-clipboard', { delayInMinutes: 0.5 });
+}
+chrome.alarms?.onAlarm?.addListener((a) => { if (a.name === 'ward-clipboard') clipboardWrite('').catch(() => {}); });
+
+// --- right-click menu (Ward): Ward > a login for this site > Fill / Copy username / password / one-time code -----
+// Rebuilt for the active tab; every click re-checks that the login still matches the tab's page before using it.
+let menuTimer;
+const refreshMenu = () => { clearTimeout(menuTimer); menuTimer = setTimeout(() => buildMenu().catch(() => {}), 250); };
+async function buildMenu() {
+  if (!chrome.contextMenus) return;
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  await chrome.contextMenus.removeAll();
+  const contexts = ['editable'];
+  chrome.contextMenus.create({ id: 'ward', title: 'Ward', contexts });
+  const v = await vault();
+  if (!v.accounts.length || !v.open) return chrome.contextMenus.create({ id: 'ward|open', parentId: 'ward', title: v.accounts.length ? 'Unlock Ward…' : 'Open Ward…', contexts });
+  const logins = http(tab?.url) ? forSite(v, tab.url).filter((i) => !i.reprompt).slice(0, 4) : [];
+  if (!logins.length) {
+    chrome.contextMenus.create({ id: 'ward|none', parentId: 'ward', title: 'No logins for this site', enabled: false, contexts });
+    return chrome.contextMenus.create({ id: 'ward|open', parentId: 'ward', title: 'Open Ward…', contexts });
+  }
+  for (const i of logins) {
+    const k = `${i.a}:${i.id}`, parentId = `ward|item|${k}`;
+    chrome.contextMenus.create({ id: parentId, parentId: 'ward', title: `${i.name}${i.username ? ` — ${i.username}` : ''}`.slice(0, 80), contexts });
+    chrome.contextMenus.create({ id: `ward|fill|${k}`, parentId, title: 'Fill', contexts });
+    if (i.username) chrome.contextMenus.create({ id: `ward|user|${k}`, parentId, title: 'Copy username', contexts });
+    if (i.password && i.viewPassword !== false) chrome.contextMenus.create({ id: `ward|pass|${k}`, parentId, title: 'Copy password', contexts });
+    if (i.totp) chrome.contextMenus.create({ id: `ward|code|${k}`, parentId, title: 'Copy one-time code', contexts });
+  }
+}
+chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
+  const [, what, k] = String(info.menuItemId).split('|');
+  if (what === 'open') return chrome.action.openPopup().catch(() => {});
+  if (!k || !http(tab?.url)) return;
+  const v = await vault();
+  const version = stateVersion;
+  const item = forSite(v, tab.url).find((i) => `${i.a}:${i.id}` === k && !i.reprompt); // still this site's login?
+  if (!item) return refreshMenu();
+  if (what === 'fill') {
+    const code = item.totp ? (await bw.totp(item.totp).catch(() => null))?.code || null : null;
+    if (await fillTab(tab.id, item, v.equiv.get(item.a), code, async () => version === stateVersion) && version === stateVersion) {
+      await markUsed(item, version);
+      if (code) scheduleClipboardClear();
+    }
+    return;
+  }
+  const value = what === 'user' ? item.username : what === 'pass' ? item.password : what === 'code' ? (await bw.totp(item.totp).catch(() => null))?.code : null;
+  if (!value || version !== stateVersion) return;
+  if (await clipboardWrite(value) && what !== 'user') scheduleClipboardClear();
+});
+// (the menu's tab and storage listeners are registered at the end of this file)
 
 // --- save offers: remembered per tab when a login is submitted, offered once the page has moved on -----------
 
@@ -374,6 +448,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     : m?.bwliteMenu === true && sender.tab && http(sender.url) ? menu(sender)
     : typeof m?.bwliteFillKey === 'string' && m.bwliteFillKey.length < 200 && sender.tab && http(sender.url) ? fillFromMenu(m.bwliteFillKey, sender)
     : m?.bwliteSubmit && sender.tab ? submitted(sender.tab.id, sender.url, m.bwliteSubmit).then(() => null)
+    : m?.wardClipboardClear === true && sender.id === chrome.runtime.id && !sender.tab ? scheduleClipboardClear().then(() => null)
     : m?.wardWatch === true && sender.tab ? watchFrame(sender)
     : m?.wardDraft && sender.tab ? draftFrom(sender, m.wardDraft).then(() => null)
     : typeof m?.bwliteSaveOpen === 'string' ? openSave(m.bwliteSaveOpen, sender)
@@ -464,3 +539,10 @@ async function mayAnswer(kind, rpId) {
   if (kind === 'create' || !v.accounts.length) return v.accounts.length > 0;
   return v.open < v.accounts.length || v.items.some((i) => i.passkeys?.some((p) => typeof p.rpId === 'string' && p.rpId.toLowerCase() === rpId));
 }
+
+// --- right-click menu listeners (registered last, after the save-offer listeners) -------------------------------
+chrome.tabs.onActivated?.addListener(refreshMenu);
+chrome.tabs.onUpdated.addListener((_id, info, tab) => { if (tab.active && (info.url || info.status === 'complete')) refreshMenu(); });
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' || Object.keys(changes).some((x) => /:key$|:list$/.test(x))) refreshMenu(); });
+chrome.runtime.onStartup?.addListener(refreshMenu);
+chrome.runtime.onInstalled?.addListener(refreshMenu);

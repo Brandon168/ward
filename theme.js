@@ -1,4 +1,6 @@
-// Runs before first paint (classic script in <head>) so a light-mode user never sees a dark flash.
+// Runs before first paint (classic script in <head>) so the popup never flashes the wrong theme.
+// Follows the system unless Settings > Appearance chose light or dark.
 try {
-  if (localStorage.theme === 'light') document.documentElement.dataset.theme = 'light';
+  const t = localStorage.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  if (t === 'light') document.documentElement.dataset.theme = 'light';
 } catch {}

@@ -381,6 +381,7 @@ console.log('bridge boundary checks ok');
 
 // Minimal Chrome storage/runtime harness for service-worker regressions; no browser or Docker is needed.
 const changesListeners = [], runtimeListeners = [], tabUpdates = [], sentTabs = [], createdWindows = [];
+const menuItems = [], menuClicks = [], offscreenMessages = [], alarmsCreated = [];
 const makeArea = (area) => {
   const data = new Map();
   const keyList = (keys) => keys === null ? [...data.keys()] : Array.isArray(keys) ? keys : typeof keys === 'string' ? [keys] : Object.keys(keys || {});
@@ -406,8 +407,11 @@ globalThis.chrome = {
     onUpdated: { addListener: (fn) => tabUpdates.push(fn) }, onRemoved: { addListener: () => {} },
   },
   windows: { create: async (o) => createdWindows.push(o), update: async () => {} },
-  runtime: { onMessage: { addListener: (fn) => runtimeListeners.push(fn) } },
+  runtime: { id: 'ward-test', onMessage: { addListener: (fn) => runtimeListeners.push(fn) }, sendMessage: async (m) => (offscreenMessages.push(m), { ok: true }) },
   scripting: { executeScript: async () => [] },
+  contextMenus: { create: (o) => menuItems.push(o), removeAll: async () => { menuItems.length = 0; }, onClicked: { addListener: (fn) => menuClicks.push(fn) } },
+  offscreen: { hasDocument: async () => false, createDocument: async () => {}, closeDocument: async () => {} },
+  alarms: { create: (name, o) => alarmsCreated.push([name, o]) },
 };
 await import(`./background.js?offline=${Date.now()}`);
 const sendRuntime = (message, sender = { tab: { id: 1 }, url: 'https://one.example/' }) => new Promise((resolve) => {
@@ -588,6 +592,45 @@ assert.equal((await sendRuntime({ bwliteSaveOpen: subKey }, { tab: { id: 7 }, fr
   await sessionStore.remove(['w:key', 'w:list', 'draft:9', 'pending:12']);
   await localStore.set({ accounts: [] });
 }
+
+{ // Ward: right-click menu for the active tab's logins, copy through the offscreen document, clipboard clearing
+  await localStore.set({ accounts: [{ id: 'm', server: 'https://vault.example', email: 'm@x.y', label: 'M' }] });
+  await sessionStore.set({ 'm:key': testSessionKey, 'm:list': JSON.stringify([
+    { id: 'l1', name: 'Menu site', username: 'mia', password: 'pw-m', uris: ['https://menu.example'], totp: 'JBSWY3DPEHPK3PXP' },
+    { id: 'l2', name: 'Guarded', username: 'g', password: 'pw-g', uris: ['https://menu.example'], reprompt: true },
+    { id: 'l3', name: 'Elsewhere', username: 'e', password: 'pw-e', uris: ['https://other.example'] }]) });
+  const realQuery = chrome.tabs.query;
+  chrome.tabs.query = async () => [{ id: 21, url: 'https://menu.example/login', active: true }];
+  await localStore.set({ used: {} }); // any change rebuilds the menu
+  await new Promise((r) => setTimeout(r, 320));
+  const titles = menuItems.map((m) => m.title);
+  assert.ok(titles.includes('Menu site — mia'), 'the menu lists this site\'s logins');
+  assert.ok(!titles.some((t) => /Guarded|Elsewhere/.test(t)), 're-prompt logins and other sites are not in the menu');
+  assert.ok(menuItems.every((m) => m.contexts?.includes('editable')), 'the menu appears on page fields');
+  const click = (id, url = 'https://menu.example/login') => Promise.all(menuClicks.map((fn) => fn({ menuItemId: id }, { id: 21, url })));
+  await click('ward|pass|m:l1');
+  assert.equal(offscreenMessages.at(-1)?.text, 'pw-m', 'Copy password goes through the offscreen document');
+  assert.deepEqual(alarmsCreated.at(-1), ['ward-clipboard', { delayInMinutes: 0.5 }], 'and the clipboard is cleared 30 s later');
+  const n = offscreenMessages.length, a = alarmsCreated.length;
+  await click('ward|user|m:l1');
+  assert.equal(offscreenMessages.at(-1)?.text, 'mia');
+  assert.equal(alarmsCreated.length, a, 'a username is not cleared');
+  await click('ward|pass|m:l1', 'https://evil.example/');
+  await click('ward|pass|m:l2');
+  assert.equal(offscreenMessages.length, n + 1, 'a stale menu on another site, or a re-prompt login, copies nothing');
+  await localStore.set({ clearClipboard: false });
+  await click('ward|pass|m:l1');
+  assert.equal(alarmsCreated.length, a, 'clearing off: no alarm');
+  await localStore.set({ clearClipboard: true });
+  // clear requests: from Ward's popup yes, from a web page no
+  await sendRuntime({ wardClipboardClear: true }, { id: 'ward-test', url: 'chrome-extension://ward-test/popup.html' });
+  assert.equal(alarmsCreated.length, a + 1, 'the popup can ask for a clear');
+  await sendRuntime({ wardClipboardClear: true }, { id: 'ward-test', tab: { id: 21 }, url: 'https://menu.example/' });
+  assert.equal(alarmsCreated.length, a + 1, 'a page cannot');
+  chrome.tabs.query = realQuery;
+  await sessionStore.remove(['m:key', 'm:list']);
+  await localStore.set({ accounts: [] });
+}
 console.log('background cache, write, RP, and save-scope checks ok');
 
 // Source-loaded popup harness. It evaluates the production popup code in a
@@ -634,7 +677,16 @@ function popupElement(tag) {
   return new class {
     constructor() {
       this.tagName = String(tag).toUpperCase(); this.children = []; this.listeners = {};
-      this.style = {}; this.dataset = {}; this.textContent = ''; this.disabled = false;
+      this.style = { setProperty(k, v) { this[k] = v; } }; this.dataset = {}; this.textContent = ''; this.disabled = false;
+      this.className = '';
+      const el = this;
+      this.classList = {
+        has: (c) => el.className.split(/\s+/).includes(c),
+        add: (c) => { if (!el.classList.has(c)) el.className = `${el.className} ${c}`.trim(); },
+        remove: (c) => { el.className = el.className.split(/\s+/).filter((x) => x && x !== c).join(' '); },
+        toggle: (c, on = !el.classList.has(c)) => (on ? el.classList.add(c) : el.classList.remove(c), on),
+        contains: (c) => el.classList.has(c),
+      };
       this.hidden = false; this.value = ''; this.checked = false; this.removed = false;
     }
     append(...children) {
@@ -649,6 +701,8 @@ function popupElement(tag) {
     focus() { this.focused = true; }
     setAttribute(name, value) { this[name] = String(value); }
     get firstChild() { return this.children[0]; }
+    get childNodes() { return this.children; }
+    scrollIntoView() {}
   }();
 }
 
@@ -668,6 +722,7 @@ function makePopup(hash, initial = {}, options = {}) {
     body: { scrollHeight: 0 },
     documentElement: { dataset: {}, append(...children) { this.children ||= []; this.children.push(...children); } },
     createElement: (tag) => popupElement(tag),
+    createElementNS: (_ns, tag) => popupElement(tag),
     addEventListener: () => {},
     querySelectorAll: () => [],
     getElementById(id) {
@@ -914,15 +969,58 @@ const rpPopup = makePopup('', { local: { accounts: [{ ...popupAccount('rp'), las
 await rpPopup.api.start();
 const copied = [];
 rpPopup.context.navigator.clipboard.writeText = async (t) => { copied.push(t); };
-const passButtons = buttonsOf(rpPopup.app, 'pass');
+const byTitle = (node, prefix) => [...(node?.tagName === 'BUTTON' && String(node.title || '').startsWith(prefix) ? [node] : []), ...(node?.children || []).flatMap((c) => byTitle(c, prefix))];
+const passButtons = byTitle(rpPopup.app, 'Copy password');
 assert.equal(passButtons.length, 1, 'viewPassword: false hides the copy button');
-passButtons[0].onclick({ target: passButtons[0] });
+passButtons[0].onclick({ target: passButtons[0], stopPropagation() {} });
 const rpForm = rpPopup.app.children[1];
 for (const pw of ['wrong', 'right']) {
   rpForm.children[0].children[0].value = pw;
   rpForm.listeners.submit({ preventDefault() {} });
   await new Promise((r) => setTimeout(r, 5));
   assert.deepEqual(copied, pw === 'right' ? ['pass'] : [], `copies only after the right master password (${pw})`);
+}
+{ // Ward UI (option E): selection, Fill only where it can work, one-click copy, clipboard clear for secrets only
+  const listItems = [
+    { id: 'gh', name: 'GitHub', username: 'ann', password: 'pw1', uris: ['https://example.com'], totp: 'JBSWY3DPEHPK3PXP', a: 'ui' },
+    { id: 'gw', name: 'GitHub work', username: 'bre', password: 'pw2', uris: ['https://example.com'], a: 'ui' },
+    { id: 'am', name: 'Amazon', username: 'amy', password: 'pw3', uris: ['https://amazon.com'], a: 'ui' },
+    { id: 'vc', type: 3, name: 'Visa', uris: [], card: { number: '4111111111111111', code: '123', expMonth: '3', expYear: '2029' }, a: 'ui' },
+  ];
+  const up = makePopup('', { local: { accounts: [{ ...popupAccount('ui'), lastSync: Date.now() }] }, session: { 'ui:key': popupKey, 'ui:list': JSON.stringify(listItems) } });
+  await up.api.start();
+  const copied = [];
+  up.context.navigator.clipboard.writeText = async (t) => { copied.push(t); };
+  const items = (node) => [...(node?.className === 'item' || String(node?.className).startsWith('item ') ? [node] : []), ...(node?.children || []).flatMap(items)];
+  const rowsNow = () => items(up.app);
+  const sel = () => rowsNow().filter((r) => r.classList.contains('sel')).map((r) => r.dataset.key);
+  assert.deepEqual(sel(), ['ui:gh'], "this site's best match is selected when Ward opens");
+  const titled = (node, prefix) => byTitle(node, prefix);
+  assert.equal(titled(up.app, 'Fill · GitHub').length >= 1, true, 'site logins can be filled');
+  assert.equal(titled(up.app, 'Fill · Amazon').length, 0, 'a login for another site has no Fill');
+  assert.equal(titled(up.app, 'Fill · Visa').length, 1, 'a card can be filled on an https page');
+  const amazon = rowsNow().find((r) => r.dataset.key === 'ui:am');
+  amazon.listeners.click();
+  assert.deepEqual(sel(), ['ui:am'], 'clicking a row only selects it');
+  assert.equal(up.sent.length, 0, 'and fills nothing');
+  const before = up.runtimeMessages.length;
+  await titled(up.app, 'Copy username · Amazon')[0].onclick({ stopPropagation() {} });
+  assert.deepEqual(copied, ['amy']);
+  assert.equal(up.runtimeMessages.slice(before).some((m) => m.wardClipboardClear), false, 'a username is not cleared later');
+  await titled(up.app, 'Copy password · Amazon')[0].onclick({ stopPropagation() {} });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(copied, ['amy', 'pw3']);
+  assert.equal(up.runtimeMessages.slice(before).some((m) => m.wardClipboardClear), true, 'a password is cleared 30 s later');
+  await titled(up.app, 'Copy card number · Visa')[0].onclick({ stopPropagation() {} });
+  assert.equal(copied.at(-1), '4111111111111111');
+  // Settings: clearing off means no clear request
+  up.api.settingsView();
+  const boxes = (node) => (node?.tagName === 'INPUT' && node.type === 'checkbox' ? [node] : []).concat(...(node?.children || []).map(boxes));
+  const clearBox = boxes(up.app)[2];
+  clearBox.checked = false;
+  await clearBox.listeners.change();
+  assert.equal((await up.local.get('clearClipboard')).clearClipboard, false);
+  assert.ok(titled(up.app, 'Removes this vault').length === 1 || textOf(up.app).includes('Log out'), 'Settings has Log out');
 }
 console.log('popup storage, passkey, account, save-window, and move checks ok');
 // page.js: the credential it hands the page takes the toJSON that @github/webauthn-json assigns (in strict mode).

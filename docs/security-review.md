@@ -43,6 +43,14 @@ before fixing. Status reflects the current `main`.
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
 
+## Clipboard and right-click menu (0.4.0)
+
+New permissions: `contextMenus` (the Ward menu on page fields), `offscreen` and `clipboardWrite` (the service worker
+copies from the menu and clears the clipboard through a short-lived offscreen document). The menu lists only this
+site's logins that don't require a master-password re-prompt, and every click re-checks that the login still matches
+the tab's page before filling or copying. Only Ward's own pages (no tab) can ask for a clipboard clear. The clear is
+unconditional after 30 s (Ward has no clipboard-read permission), so it is a setting.
+
 ## Card and address capture (0.3.0)
 
 Design constraints, all covered by tests: only values from trusted input/change events (`bwliteTyped`, shared by
