@@ -8,7 +8,7 @@ findings privately). Start with README.md, ROADMAP.md, docs/security-review.md a
 ## Repo
 
 - Plain JavaScript, Manifest V3, no build step and no dependencies. Keep it that way unless asked.
-- Remotes: `origin` is the private Brandon168/ward; `upstream` is BW Lite with push disabled. `gh repo set-default`
+- Remotes: `origin` is Brandon168/ward; `upstream` is BW Lite with push disabled. `gh repo set-default`
   is Brandon168/ward (otherwise gh resolves the `upstream` remote).
 - Version lives in `manifest.json`; bump it with user-visible changes and mention it in the commit subject, e.g. `(0.4.1)`.
   ROADMAP.md lists shipped versions; update README "What it does today" and docs/TESTING.md when behaviour changes.
@@ -29,8 +29,8 @@ Markdown or docs/.
 
 - `node scripts/preview.mjs` builds `preview/ward-popup.html` (git-ignored): the real popup with sample data
   (`scripts/preview-shim.js`) in one self-contained file, and `preview/ward-inpage.html`: a sample sign-in page running
-  the real inpage.js (field menu, save bar). The in-page UI reuses the popup's colours and avatars; keep them in step. The user views it in Paseo's Files panel > Preview, so
-  rebuild it after every UI change. It must keep working under that panel's limits: a sandboxed frame, inline scripts
-  and blob: modules only, no network, storage, clipboard or Web Locks.
+  the real inpage.js (field menu, save bar). The in-page UI reuses the popup's colours and avatars; keep them in step.
+  Rebuild it after every UI change. It must keep working in a sandboxed HTML preview panel: inline scripts and blob:
+  modules only, no network, storage, clipboard or Web Locks.
 - docs/design/ holds the original UI mockups (option E was chosen) and 0.4.0 screenshots.
 - The popup refuses to run framed; only the generated preview drops that check. Never weaken it in popup.js.

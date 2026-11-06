@@ -7,16 +7,18 @@ instant search and fill, offline use, Touch ID unlock, and live sync.
 Ward is plain JavaScript with no framework, no bundler and no npm dependencies. The files in this repository
 are exactly what the browser runs, so a release can be reviewed line by line.
 
-Initial target: **Vivaldi on macOS** (any Chromium browser should work).
+Developed and tested on **Vivaldi on macOS**; any Chromium browser (121 or newer) should work. Firefox is not a
+target yet.
 
 ## Status
 
-Private, pre-release. See [ROADMAP.md](ROADMAP.md) for what's done and next, and
-[docs/security-review.md](docs/security-review.md) for the review of the seed code.
+Early release (0.4.x), not yet widely tested. See [ROADMAP.md](ROADMAP.md) for what's
+done and next, [Known limitations](#known-limitations) below, and [docs/security-review.md](docs/security-review.md)
+for the security reviews.
 
 ## Install (unpacked)
 
-1. Clone this repository (or download a CI artifact) somewhere permanent.
+1. Clone this repository (or download and unzip a release) somewhere permanent.
 2. Open `vivaldi://extensions` (or `chrome://extensions`) and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the repository folder (the one that contains `manifest.json`).
 
@@ -57,6 +59,20 @@ The vault key and decrypted list live in the browser's memory-only session stora
 quit the browser. "Never lock" keeps the key on disk instead (like Bitwarden's Never timeout). Cached vault data on
 disk is encrypted. Nothing is filled without a click or the shortcut.
 
+### Known limitations
+
+These are open findings from [docs/security-review.md](docs/security-review.md); read them before trusting Ward with
+a real vault.
+
+- **The server is trusted for matching (M4).** A hostile or compromised server can change equivalent domains or a
+  login's match type so that Ward offers a real password on another site. The encryption is not broken by this;
+  only use Ward with a server you run or trust.
+- **"Never lock" stores the raw vault key on disk (M6)**, like Bitwarden's "Never" timeout. Anyone who can read your
+  browser profile can then decrypt the vault. It is off by default.
+- **Touch ID unlock is experimental.** It relies on the WebAuthn PRF extension (see Settings > Touch ID). It has
+  been tested on macOS only; Windows Hello should work on recent Windows 11 and Chrome versions but is untested.
+- Smaller open items (regex match types, passkey prompts, Firefox) are listed in the review.
+
 CI enforces guard rails on every change, including upstream cherry-picks: manifest permissions are pinned,
 network calls may only go to the configured server (plus well-known passkey endpoints), dynamic code is
 forbidden, vendored files must match pinned hashes, and per-page code stays inside a size budget.
@@ -75,7 +91,7 @@ node scripts/guard.mjs              # security guard rails
 
 UI preview: `node scripts/preview.mjs` writes `preview/ward-popup.html` (git-ignored), the real popup with sample data
 in one self-contained file, and `preview/ward-inpage.html`, a sample sign-in page with the real in-page menu and save
-bar (click a field). Open it in any browser, or in Paseo's Files panel > Preview. Rerun it after each UI change.
+bar (click a field). Open it in any browser or a sandboxed HTML preview panel. Rerun it after each UI change.
 Only that generated copy fakes the extension APIs and drops the popup's refusal to run in a frame.
 
 ## Upstream

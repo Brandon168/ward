@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Done (2026-11-06)
-- Seeded from BW Lite 1d77b9e; own extension ID, name, icon; private repo
+- Seeded from BW Lite 1d77b9e; own extension ID, name, icon
 - CI: guard rails (`scripts/guard.mjs`: permissions, network call sites, URL literals, dynamic code, vendor
   hashes, size budgets), vendored argon2 checked byte-for-byte against npm, Actions pinned by SHA,
   Vaultwarden 1.37.5 integration tests, weekly upstream-watch issue
@@ -19,19 +19,15 @@
 - Fix: no more console error on every click on pages without a password field (0.4.3)
 
 ## Next
-1. Touch ID: act on the Vivaldi test. If PRF works for extension pages, polish (prompt automatically when the
-   popup opens locked, cover vaults unlocked later). If not, a small Swift native-messaging helper using the
-   Keychain and LocalAuthentication (needs `nativeMessaging`; host manifest in
-   `~/Library/Application Support/Vivaldi/NativeMessagingHosts/`).
-2. Clipboard clearing after 30–60 s (offscreen document).
-3. Offline edit queue (edits made offline are sent on reconnect; the server's `lastKnownRevisionDate` refuses
+1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover
+   vaults unlocked later, and name the button for the platform ("Windows Hello" on Windows). Try Windows Hello
+   (Windows 11 25H2 and Chrome 147 or newer are needed for PRF).
+2. Offline edit queue (edits made offline are sent on reconnect; the server's `lastKnownRevisionDate` refuses
    conflicts).
-4. Security review leftovers: M4 (server-controlled equivalent domains and match types), L2, L4, L5, M6
+3. Security review leftovers: M4 (server-controlled equivalent domains and match types), L2, L4, L5, M6
    (replace Never lock with Touch ID).
-5. Cards and identities: in-page menu on card/address fields; custom fields; card fill in more payment
+4. Cards and identities: in-page menu on card/address fields; custom fields; card fill in more payment
    providers' frames as they turn up.
-6. Browser behaviour test in CI: headless Chromium with the extension, a local https test site and an
+5. Browser behaviour test in CI: headless Chromium with the extension, a local https test site and an
    egress-logging proxy that fails on any request to an unexpected host.
-7. Bot access (separate project): `vw://vault/item/field` references resolved by a self-hosted service from a
-   bot-only Vaultwarden account, injected into commands/requests without the model seeing them.
-8. Faster per-page code: a tiny loader that pulls in the menu only when a login field appears.
+6. Faster per-page code: a tiny loader that pulls in the menu only when a login field appears.

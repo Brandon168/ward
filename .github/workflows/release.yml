@@ -1,7 +1,7 @@
 name: Release
 
 # Push an annotated tag like v0.3.2 that matches manifest.json; its message becomes the release notes and the
-# tested build is published as a GitHub release. Store submission is a separate, manual step: see store.yml.
+# tested build is published as a GitHub release.
 on:
   push:
     tags: ['v*']

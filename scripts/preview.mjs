@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds preview/ward-popup.html (the real popup: popup.html/css/js and its modules, with sample data) and
-// preview/ward-inpage.html (the in-page login menu and save bar), each one self-contained file for Paseo's Files panel >
-// Preview, which allows only inline scripts and blob: modules.
+// preview/ward-inpage.html (the in-page login menu and save bar), each one self-contained file that
+// works in a sandboxed HTML preview panel, which allows only inline scripts and blob: modules.
 // Usage: node scripts/preview.mjs   (rerun after each UI change; then reopen or refresh the preview)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -11,7 +11,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => readFileSync(join(root, f), 'utf8');
 // Dependency order: each module's imports are created first, so their blob URLs exist when it is rewritten.
 const MODULES = ['vendor/public_suffix_list.js', 'bw.js', 'coord.js', 'autofill.js', 'touch.js', 'sync.js', 'popup.js'];
-// The popup refuses to run framed (window !== top), and Paseo's preview is a frame: in this sample-data copy only,
+// The popup refuses to run framed (window !== top), and a preview panel is a frame: in this sample-data copy only,
 // shadow `top` so the popup takes itself for the top window. The extension itself is unchanged.
 const mods = MODULES.map((f) => [f, f === 'popup.js' ? `const top = window; // preview only\n${read(f)}` : read(f)]);
 for (const [f, src] of mods) {

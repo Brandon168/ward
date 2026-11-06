@@ -1,5 +1,5 @@
 // Preview only (scripts/preview.mjs): a fake extension environment with sample data, no real vault or network.
-// Runs inside Paseo's HTML preview (a sandboxed frame: no storage, clipboard or extension APIs), so those are faked.
+// Runs inside a sandboxed HTML preview panel (no storage, clipboard or extension APIs), so those are faked.
 const key = btoa(String.fromCharCode(...new Uint8Array(64)));
 const list = [
   { id: 'gh', name: 'GitHub', username: 'brandon@example.com', password: 'pw1', uris: ['https://github.com'], totp: 'JBSWY3DPEHPK3PXP', a: 'v' },

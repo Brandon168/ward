@@ -8,4 +8,4 @@ The developer receives nothing: there is no analytics, tracking, advertising or 
 
 The extension reads the page you're on only to find login fields, fill them when you ask, offer to save a login you just submitted, and answer passkey requests from that site.
 
-Questions: https://github.com/Brandon168/ward/issues (private)
+Questions: https://github.com/Brandon168/ward/issues
