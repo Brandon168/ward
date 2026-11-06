@@ -704,15 +704,16 @@ function avatar(i) {
   return h('span', { className: 'av', style: `background:${t === 3 ? '#374151' : t === 4 ? '#0891b2' : '#6b7280'}` }, icon(t === 3 ? 'card' : t === 4 ? 'person' : 'note', 16));
 }
 
-// The one-time code button: ring + digits, refreshed every second; a click copies the current code.
+// The one-time code button: a pie that empties as the code's time runs out (red for the last 5 s); a click copies the
+// current code. The digits stay off screen (screen shares, shoulders); Fill and the copy put them on the clipboard.
 function codeButton(i) {
-  const ring = h('span', { className: 'ring' }), digits = h('span', {}, '······');
-  const b = h('button', { className: 'code totp', title: `Copy one-time code · ${i.name}` }, ring, digits);
+  const ring = h('span', { className: 'ring' });
+  const b = h('button', { className: 'totp', title: `Copy one-time code · ${i.name}` }, ring);
   b.addEventListener('click', (e) => (e.stopPropagation(), guarded(i, async () => copy(b, (await bw.totp(i.totp)).code))));
   b._tick = () => bw.totp(i.totp).then((t) => {
-    digits.textContent = t.code.replace(/^(\d{3})(\d{3})$/, '$1 $2');
     ring.style.setProperty('--p', String(Math.round((t.remaining / (t.period || 30)) * 100)));
-  }, () => (digits.textContent = 'bad code'));
+    ring.classList.toggle('low', t.remaining <= 5);
+  }, () => (ring.classList.add('bad'), (b.title = `The one-time code secret for ${i.name} is not valid`)));
   b._tick();
   return b;
 }

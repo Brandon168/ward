@@ -50,7 +50,8 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     - **from page** (Cards/Identities tab, on a page with the form filled in) opens a pre-filled new item to review.
 13. **New list (0.4.0)**: on github.com (or any site with a login) the site's login is selected with its icons
     visible; click 👤/🔑/code to copy (the icon turns into ✓), Fill to fill. Click another row: it becomes selected,
-    nothing is filled. Hover any row for its icons. Copy a password, wait 30 s, paste: empty.
+    nothing is filled. Hover any row for its icons. Copy a password, wait 30 s, paste: empty. The code button is a pie with no
+    digits; it empties as the code runs out and turns red for the last 5 s.
 14. **Right-click** a username or password field: Ward → your login → Fill / Copy ….
 15. **Settings → Account → Log out** removes the vault (asks "Sure?" first). **Appearance** follows macOS unless set.
 12. **Settings → Saving**: turn off "Offer to save cards and addresses" and repeat 11: no bar appears. Turn off

@@ -14,6 +14,7 @@
 - Settings switches for save offers (0.3.1)
 - New UI (option E, inline icons): one list, selection rule, one-click copy; right-click menu; clipboard clearing;
   Settings > Account / Copying / Appearance (0.4.0)
+- One-time code button shows only a countdown pie (red for the last 5 s), no digits (0.4.1)
 
 ## Next
 1. Touch ID: act on the Vivaldi test. If PRF works for extension pages, polish (prompt automatically when the
