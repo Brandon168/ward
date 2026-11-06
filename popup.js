@@ -1,6 +1,6 @@
 import * as bw from './bw.js';
 import { fillTab } from './autofill.js';
-import { withStateLock, mutateAccounts } from './coord.js';
+import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
 
 const app = document.getElementById('app');
 const local = chrome.storage.local, session = chrome.storage.session; // session = memory only, gone when the browser quits
@@ -137,7 +137,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -371,11 +371,16 @@ function loginView() {
       e.preventDefault();
       run(btn, err, async () => {
         const srv = server.value.trim().replace(/\/+$/, ''), mail = email.value.trim();
+        // Ward: tokens, the password hash and the KDF choice must not cross the network in clear text.
+        let su;
+        try { su = new URL(srv); } catch { throw new Error('Enter the server address, e.g. https://vault.example.com'); }
+        if (su.protocol !== 'https:' && !(su.protocol === 'http:' && /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/i.test(su.hostname)))
+          throw new Error('Use an https:// server address (plain http is only allowed for localhost).');
         // the same vault again (after a master password or KDF change elsewhere) is logged in again in place
         const old = accounts.find((a) => a.server === srv && a.email.toLowerCase() === mail.toLowerCase());
         if (!st.deviceId) await local.set({ deviceId: (st.deviceId = crypto.randomUUID()) }); // one id per install avoids new-device emails
         try {
-          const r = await bw.login(srv, mail, pw.value, st.deviceId, need && { kind: need, value: code.value.trim() }, old?.twoFactorToken);
+          const r = await bw.login(srv, mail, pw.value, st.deviceId, need && { kind: need, value: code.value.trim() }, old?.twoFactorToken, old?.kdf);
           const fields = { kdf: r.kdf, protectedKey: r.protectedKey, tokens: r.tokens, ...(r.twoFactorToken && { twoFactorToken: r.twoFactorToken }) };
           const a = old || { id: newId(), server: srv, email: mail, label: label.value.trim() || mail, ...fields };
           await (old ? update(old, fields) : updateAccounts((list) => [...list, a]));
@@ -725,6 +730,13 @@ function vaultView() {
       });
     },
   });
+  const lockLabel = (m) => (m === 0 ? 'Lock when the browser quits' : `Lock after ${m < 60 ? `${m} min` : `${m / 60} h`} idle or screen lock`);
+  const autoLock = h('select', {
+    title: 'Auto-lock: locks every vault after this much time without keyboard or mouse input, and when the computer locks or sleeps. Never lock overrides it.',
+    disabled: !!st.neverLock,
+    onchange: () => local.set({ autoLock: (st.autoLock = Number(autoLock.value)) }),
+  }, AUTO_LOCK_CHOICES.map((m) => h('option', { value: String(m), selected: m === autoLockMinutes(st.autoLock) }, lockLabel(m))));
+  neverLock.addEventListener('change', () => (autoLock.disabled = neverLock.checked));
   const stillLocked = locked().length;
   const theme = themeButton();
   theme.className = 'quiet';
@@ -733,7 +745,9 @@ function vaultView() {
       h('nav', {}, quiet('new', 'Add login', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
     h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
     h('footer', {},
-      h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
+      h('span', { className: 'locks' },
+        h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
+        autoLock),
       h('span', {},
         stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`),
         h('button', { className: 'link', onclick: accountsView }, multi ? `Vaults (${accounts.length})` : 'Vaults'))));

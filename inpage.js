@@ -40,8 +40,26 @@ if (!globalThis.bwliteFill) {
 
   // --- menu under a login field: logins for this frame's site, from background.js. A closed shadow root keeps the
   // usernames out of the page's reach; only a real click fills.
-  let menu, menuFor;
-  const closeMenu = () => (menu?.remove(), (menu = menuFor = null));
+  let menu, menuFor, menuShownAt = 0, menuVisible = null, menuWatch;
+  const closeMenu = () => (menuWatch?.disconnect(), menu?.remove(), (menu = menuFor = menuWatch = null), (menuVisible = null));
+  // Ward: the menu opens only right after a real pointer press on the field or a Tab/arrow key press, never on a
+  // focus the page made with field.focus(), so a page can't pop it open under a decoy.
+  let pressedOn = null, pressedAt = 0, keyedAt = 0;
+  document.addEventListener('pointerdown', (e) => e.isTrusted && ((pressedOn = e.target), (pressedAt = performance.now())), true);
+  document.addEventListener('keydown', (e) => e.isTrusted && /^(Tab|ArrowUp|ArrowDown)$/.test(e.key) && (keyedAt = performance.now()), true);
+  const userFocused = (f) => ((pressedOn === f || pressedOn?.control === f) && performance.now() - pressedAt < 1500) || performance.now() - keyedAt < 800;
+  // Ward: is the menu really what the user saw? Chromium's IntersectionObserver v2 reports isVisible = false when
+  // anything covers it (even a pointer-events:none overlay) or a filter/opacity/transform hides it. Elsewhere,
+  // fall back to computed-style checks on the menu and the root element.
+  const styleHides = (cs) => cs.opacity !== '1' || cs.visibility !== 'visible' || cs.filter !== 'none' || cs.clipPath !== 'none'
+    || cs.mixBlendMode !== 'normal' || (cs.mask && cs.mask !== 'none') || cs.transform !== 'none';
+  const genuine = (e) => {
+    if (!e.isTrusted || !menu || performance.now() - menuShownAt < 400) return false; // too soon: a swapped-in menu
+    if (menuVisible === false) return false;
+    if (menuVisible === null && 'isVisible' in IntersectionObserverEntry.prototype) return false; // not confirmed yet
+    const root = getComputedStyle(document.documentElement), own = getComputedStyle(menu);
+    return !styleHides(own) && root.opacity === '1' && root.filter === 'none' && document.elementFromPoint(e.clientX, e.clientY) === menu;
+  };
   const el = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
   function showMenu(field, logins) {
     const r = field.getBoundingClientRect();
@@ -62,10 +80,8 @@ if (!globalThis.bwliteFill) {
       const b = box.appendChild(document.createElement('button'));
       b.append(el('b', l.username || '(no username)'), el('small', l.name));
       b.addEventListener('click', async (e) => {
-        if (!e.isTrusted) return;
-        // the page can focus the field itself, hide this menu and draw a decoy under it: fill only a click on the visible menu
-        const cs = getComputedStyle(menu);
-        if (cs.opacity !== '1' || cs.visibility !== 'visible' || document.elementFromPoint(e.clientX, e.clientY) !== menu) return closeMenu();
+        // the page can hide this menu and draw a decoy over or under it: fill only a click on the visible menu
+        if (!genuine(e)) return closeMenu();
         closeMenu();
         const c = await chrome.runtime.sendMessage({ bwliteFillKey: l.k }).catch(() => null);
         if (c) bwliteFill(c.username, c.password, c.code);
@@ -73,12 +89,18 @@ if (!globalThis.bwliteFill) {
     }
     root.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field so the click lands
     document.documentElement.append(menu);
+    menuShownAt = performance.now();
+    try {
+      menuWatch = new IntersectionObserver((entries) => { const en = entries.at(-1); menuVisible = 'isVisible' in en ? en.isVisible : null; },
+        { trackVisibility: true, delay: 100 });
+      menuWatch.observe(menu);
+    } catch { menuWatch = null; }
   }
   async function maybeShow(f) {
     if (filling || f === menuFor) return;
     closeMenu();
     const { user, pw } = loginFields(false);
-    if ((f !== user && f !== pw) || f.autocomplete === 'new-password') return;
+    if ((f !== user && f !== pw) || f.autocomplete === 'new-password' || !userFocused(f)) return;
     const logins = await chrome.runtime.sendMessage({ bwliteMenu: true }).catch(() => null);
     if (logins?.length && document.activeElement === f && !menu) showMenu(f, logins);
   }
@@ -92,7 +114,13 @@ if (!globalThis.bwliteFill) {
   addEventListener('resize', closeMenu);
 
   // --- logins being submitted: background.js offers to save them after the page navigates
+  // Ward: only a submit that follows real user input counts, at most one every 2 s, so a page can't script
+  // submissions to probe whether a guessed password matches the saved one (no offer appears when it does).
+  let capturedAt = -1e9;
   function capture() {
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
+    if (performance.now() - capturedAt < 2000) return;
+    capturedAt = performance.now();
     const { all, user } = loginFields(true);
     const pws = all.filter((i) => i.type === 'password' && i.value);
     const username = user?.value.trim() || '';
@@ -100,7 +128,7 @@ if (!globalThis.bwliteFill) {
     if (pws.length || username) chrome.runtime.sendMessage({ bwliteSubmit: { username, password: pws.at(-1)?.value || '' } }).catch(() => {});
   }
   document.addEventListener('submit', capture, true);
-  document.addEventListener('keydown', (e) => e.key === 'Enter' && e.target instanceof HTMLInputElement && capture(), true);
+  document.addEventListener('keydown', (e) => e.isTrusted && e.key === 'Enter' && e.target instanceof HTMLInputElement && capture(), true);
   document.addEventListener('click', (e) => e.isTrusted && e.target.closest?.('button, input[type=submit], [role=button]') && capture(), true);
 
   // --- the save bar, top frame only

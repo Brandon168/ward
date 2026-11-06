@@ -4,7 +4,8 @@
       "storage",
       "activeTab",
       "scripting",
-      "unlimitedStorage"
+      "unlimitedStorage",
+      "idle"
     ],
     "optional_permissions": [],
     "host_permissions": [
@@ -71,7 +72,8 @@
     "https://${value}",
     "https://api.bitwarden.${cloud[1]}",
     "https://identity.bitwarden.${cloud[1]}",
-    "https://vault.bitwarden.com"
+    "https://vault.bitwarden.com",
+    "https://vault.example.com"
   ],
   "files": [
     "LICENSE",

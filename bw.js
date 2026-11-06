@@ -29,7 +29,33 @@ export function urls(server) {
 
 // --- keys ---------------------------------------------------------------
 
+// Ward: the server picks the KDF at login (prelogin), so a hostile or spoofed server could ask for a trivially weak
+// one and crack the resulting password hash offline, or an absurd one to hang the popup. Refuse anything outside
+// these bounds (Bitwarden's own Argon2id limits; PBKDF2 floor well above the trivially crackable range).
+export const KDF_LIMITS = { pbkdf2: [100_000, 2_000_000], iterations: [2, 10], memoryMiB: [16, 1024], parallelism: [1, 16] };
+const within = (v, [lo, hi]) => Number.isSafeInteger(v) && v >= lo && v <= hi;
+export function checkKdf(kdf) {
+  const L = KDF_LIMITS, fix = ' Change it in the web vault (Settings > Security > Keys) or check the server address.';
+  if (kdf?.kdf === 0) {
+    if (!within(kdf.kdfIterations, L.pbkdf2)) throw new Error(`Refusing PBKDF2 with ${kdf.kdfIterations} iterations (allowed ${L.pbkdf2.join('-')}).${fix}`);
+    return kdf;
+  }
+  if (kdf?.kdf === 1) {
+    if (!within(kdf.kdfIterations, L.iterations) || !within(kdf.kdfMemory, L.memoryMiB) || !within(kdf.kdfParallelism, L.parallelism))
+      throw new Error(`Refusing Argon2id with ${kdf.kdfIterations} iterations, ${kdf.kdfMemory} MiB, parallelism ${kdf.kdfParallelism}.${fix}`);
+    return kdf;
+  }
+  throw new Error(`Unsupported KDF ${kdf?.kdf}`);
+}
+// True when next is weaker than prev (a re-login to the same vault): Argon2id to PBKDF2, or any lower parameter.
+export function kdfWeaker(next, prev) {
+  if (!prev || (prev.kdf !== 0 && prev.kdf !== 1)) return false;
+  if (prev.kdf === 1) return next.kdf !== 1 || next.kdfIterations < prev.kdfIterations || next.kdfMemory < prev.kdfMemory;
+  return next.kdf === 0 && next.kdfIterations < prev.kdfIterations;
+}
+
 export async function makeMasterKey(password, email, kdf) {
+  checkKdf(kdf);
   const salt = te.encode(email.trim().toLowerCase());
   if (kdf.kdf === 0) {
     const k = await subtle.importKey('raw', te.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -112,8 +138,10 @@ const tokens = (j) => ({ access: j.access_token, refresh: j.refresh_token, expir
 
 // code: {kind: '2fa' | 'device', value} on the second attempt, after login threw an error with .need set.
 // remember: the twoFactorToken an earlier 2FA login returned, tried before asking for a code.
-export async function login(server, email, password, deviceId, code, remember) {
-  const kdf = await prelogin(server, email);
+// pinned: the KDF stored from an earlier login to this vault; a weaker one from the server is refused.
+export async function login(server, email, password, deviceId, code, remember, pinned) {
+  const kdf = checkKdf(await prelogin(server, email));
+  if (kdfWeaker(kdf, pinned)) throw new Error('The server now asks for weaker key derivation settings than this vault used before. If you lowered them on purpose, remove the vault and add it again.');
   const mk = await makeMasterKey(password, email, kdf);
   const body = new URLSearchParams({
     grant_type: 'password', username: email, password: await passwordHash(mk, password), scope: 'api offline_access',
@@ -347,17 +375,29 @@ export function equivalents(groups) {
 
 // Per saved URI, its match type as in Bitwarden: null/0 base domain (or an equivalent one), 1 host (with port),
 // 2 starts with, 3 exact, 4 regular expression, 5 never.
+// Ward: a plain-http page only matches URIs saved with an explicit http:// scheme, or schemeless URIs for local
+// hosts (IP literals, localhost, .local/.lan/.home.arpa/.internal). Otherwise an on-path attacker could downgrade
+// or inject http://anything.bank.com and have the bank's https login offered and filled there.
+const LOCAL_HOST = /^(localhost|\[[0-9a-f:.]+\]|\d{1,3}(\.\d{1,3}){3})$|\.(local|lan|home\.arpa|internal|localhost)$/i;
+export function httpAllowed(u) {
+  if (/^http:\/\//i.test(u)) return true;
+  if (/^[a-z][\w+.-]*:\/\//i.test(u)) return false; // https:// or any other explicit scheme
+  try { return LOCAL_HOST.test(toURL(u).hostname); } catch { return false; }
+}
+
 export function matches(item, url, equiv) {
   if (!item || !Array.isArray(item.uris)) return false;
   let page;
   try { page = new URL(url); } catch { return false; }
   const site = baseDomain(page.hostname);
+  const plainHttp = page.protocol === 'http:';
   return item.uris.some((u, n) => {
     try {
+      if (plainHttp && !httpAllowed(u)) return false;
       switch (item.m?.[n] ?? 0) {
         case 0: { const d = domainOf(u); return !!d && (d === site || !!equiv?.get(site)?.has(d)); }
         case 1: return toURL(u).host === page.host;
-        case 2: return url.startsWith(u);
+        case 2: { const s = toURL(u); return s.origin === page.origin && (url.startsWith(u) || page.href.startsWith(s.href)); } // Ward: same origin first
         case 3: return url === u;
         case 4: return new RegExp(u, 'i').test(url);
         default: return false;

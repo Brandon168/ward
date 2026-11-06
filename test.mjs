@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as bw from './bw.js';
-import { mutateAccounts, withStateLock } from './coord.js';
+import { mutateAccounts, withStateLock, AUTO_LOCK_CHOICES, autoLockMinutes, shouldAutoLock, lockEverything } from './coord.js';
 import { fillTab } from './autofill.js';
 
 globalThis.hashwasm = createRequire(import.meta.url)('./vendor/argon2.umd.min.js');
@@ -151,6 +151,60 @@ assert.deepEqual(fillTargets, [{ tabId: 1, allFrames: true }, { tabId: 1, allFra
 if (oldChrome) globalThis.chrome = oldChrome;
 else delete globalThis.chrome;
 console.log('offline checks ok');
+
+// --- Ward hardening -------------------------------------------------------------
+assert.throws(() => bw.checkKdf({ kdf: 0, kdfIterations: 1 }), /Refusing PBKDF2/, 'a server cannot ask for 1 PBKDF2 iteration');
+assert.throws(() => bw.checkKdf({ kdf: 0, kdfIterations: 5e7 }), /Refusing PBKDF2/, 'nor an absurd count that hangs the popup');
+assert.throws(() => bw.checkKdf({ kdf: 1, kdfIterations: 1, kdfMemory: 64, kdfParallelism: 4 }), /Refusing Argon2id/);
+assert.throws(() => bw.checkKdf({ kdf: 1, kdfIterations: 3, kdfMemory: 1, kdfParallelism: 4 }), /Refusing Argon2id/);
+assert.throws(() => bw.checkKdf({ kdf: 1, kdfIterations: 3, kdfMemory: 64 * 1024, kdfParallelism: 4 }), /Refusing Argon2id/);
+assert.throws(() => bw.checkKdf({ kdf: 7 }), /Unsupported KDF/);
+bw.checkKdf({ kdf: 0, kdfIterations: 600000 });
+bw.checkKdf({ kdf: 1, kdfIterations: 3, kdfMemory: 64, kdfParallelism: 4 });
+await assert.rejects(bw.makeMasterKey('pw', 'a@b.c', { kdf: 0, kdfIterations: 1 }), /Refusing PBKDF2/, 'unlock checks the stored KDF too');
+const a2 = { kdf: 1, kdfIterations: 3, kdfMemory: 64, kdfParallelism: 4 };
+assert.ok(bw.kdfWeaker({ kdf: 0, kdfIterations: 600000 }, a2), 'Argon2id to PBKDF2 is a downgrade');
+assert.ok(bw.kdfWeaker({ ...a2, kdfMemory: 16 }, a2));
+assert.ok(bw.kdfWeaker({ kdf: 0, kdfIterations: 100000 }, { kdf: 0, kdfIterations: 600000 }));
+assert.ok(!bw.kdfWeaker({ kdf: 0, kdfIterations: 600000 }, { kdf: 0, kdfIterations: 600000 }));
+assert.ok(!bw.kdfWeaker(a2, { kdf: 0, kdfIterations: 600000 }), 'PBKDF2 to Argon2id is fine');
+assert.ok(!bw.kdfWeaker(a2, undefined), 'first login: nothing pinned');
+{
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ kdf: 0, kdfIterations: 1 }) });
+  await assert.rejects(bw.login('https://vault.example', 'a@b.c', 'pw', 'dev'), /Refusing PBKDF2/, 'login refuses a weak prelogin before sending any hash');
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ kdf: 0, kdfIterations: 600000 }) });
+  await assert.rejects(bw.login('https://vault.example', 'a@b.c', 'pw', 'dev', null, null, a2), /weaker key derivation/, 'a re-login cannot be downgraded');
+  globalThis.fetch = realFetch;
+}
+const wi = (uris, m) => ({ uris, m });
+assert.ok(!bw.matches(wi(['https://bank.com']), 'http://x.bank.com/'), 'an https login is never offered on an http page');
+assert.ok(!bw.matches(wi(['bank.com']), 'http://bank.com/'), 'schemeless public hosts count as https');
+assert.ok(bw.matches(wi(['http://legacy.example']), 'http://legacy.example/'), 'explicit http:// still matches http');
+assert.ok(bw.matches(wi(['192.168.1.1']), 'http://192.168.1.1/'), 'router by IP');
+assert.ok(bw.matches(wi(['nas.local:5000']), 'http://nas.local:5000/'), 'local host with port');
+assert.ok(bw.matches(wi(['bank.com']), 'https://www.bank.com/'), 'https base-domain matching unchanged');
+assert.ok(!bw.matches(wi(['https://bank.com'], [2]), 'https://bank.com.evil.net/'), 'starts-with compares the origin first');
+assert.ok(bw.matches(wi(['https://bank.com/login'], [2]), 'https://bank.com/login?next=1'));
+assert.ok(!bw.matches(wi(['https://bank.com/login'], [2]), 'https://bank.com/other'));
+assert.equal(autoLockMinutes(undefined), 30);
+assert.equal(autoLockMinutes(0), 0);
+assert.equal(autoLockMinutes(7), 30, 'unknown choices fall back to the default');
+assert.ok(shouldAutoLock('locked', {}), 'screen lock locks by default');
+assert.ok(shouldAutoLock('idle', { autoLock: 5 }));
+assert.ok(!shouldAutoLock('active', {}));
+assert.ok(!shouldAutoLock('locked', { neverLock: true }), 'Never lock overrides auto-lock');
+assert.ok(!shouldAutoLock('locked', { autoLock: 0 }), '"when the browser quits" ignores screen lock');
+{
+  const mem = (init) => { const d = new Map(Object.entries(init)); return { d,
+    get: async (k) => Object.fromEntries((Array.isArray(k) ? k : [k]).filter((x) => d.has(x)).map((x) => [x, structuredClone(d.get(x))])),
+    set: async (o) => { for (const [x, v] of Object.entries(o)) d.set(x, structuredClone(v)); }, clear: async () => d.clear() }; };
+  const l = mem({ accounts: [{ id: 'a', persistKey: 'k' }, { id: 'b' }] }), s = mem({ 'a:key': 'k', 'a:list': '[]', 'pending:3': { password: 'x' } });
+  await lockEverything(l, s);
+  assert.deepEqual(l.d.get('accounts'), [{ id: 'a' }, { id: 'b' }], 'auto-lock drops persisted keys');
+  assert.equal(s.d.size, 0, 'auto-lock clears keys, lists and pending save offers');
+}
+console.log('ward hardening checks ok');
 
 // Passkeys: a credential made by passkeyCreate signs assertions its public key verifies
 const fromB64u = (s) => Buffer.from(s, 'base64url');
@@ -477,7 +531,7 @@ function makePopup(hash, initial = {}, options = {}) {
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
-    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts,
+    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes,
     navigator: { clipboard: { writeText: async () => {} } }, localStorage: {},
     crypto: globalThis.crypto || nodeCrypto.webcrypto, TextDecoder, URL, Intl, structuredClone,
     console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
@@ -676,7 +730,11 @@ console.log('popup storage, passkey, account, save-window, and move checks ok');
 const inpageSource = await readFile('./inpage.js', 'utf8');
 assert.equal(inpageSource.includes('popup.html#save='), false, 'the page bar cannot frame the extension popup');
 assert.equal(inpageSource.includes('attachShadow({ mode: \'closed\' })'), true, 'the save token stays in a closed extension bar');
-assert.match(inpageSource, /addEventListener\('click', async \(e\) => \{[^}]*elementFromPoint/, 'a menu click fills only when it hit the visible menu');
+assert.match(inpageSource, /addEventListener\('click', async \(e\) => \{\s*(\/\/[^\n]*\n\s*)?if \(!genuine\(e\)\) return closeMenu\(\);/, 'a menu click fills only when it is genuine');
+assert.match(inpageSource, /const genuine = \(e\) => \{\s*if \(!e\.isTrusted[^\n]*\n[\s\S]*?elementFromPoint/, 'genuine: trusted click on the menu itself');
+assert.match(inpageSource, /trackVisibility: true/, 'genuine: IntersectionObserver v2 occlusion check');
+assert.match(inpageSource, /!userFocused\(f\)\) return;/, 'the menu opens only after real user focus');
+assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActive\) return;/, 'save capture needs user activation');
 
 if (!process.argv.includes('--integration')) process.exit(0);
 

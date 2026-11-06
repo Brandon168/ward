@@ -3,7 +3,7 @@
 // extension-owned save confirmation and passkey windows.
 import * as bw from './bw.js';
 import { fillTab } from './autofill.js';
-import { withStateLock } from './coord.js';
+import { withStateLock, lockEverything, shouldAutoLock, autoLockMinutes } from './coord.js';
 
 const local = chrome.storage.local, session = chrome.storage.session, td = new TextDecoder();
 const http = (url) => /^https?:\/\//i.test(url || '');
@@ -127,6 +127,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
   redraw = setTimeout(async () => (await chrome.tabs.query({})).forEach((t) => badge(t.id, t.url)), 300);
 });
 chrome.action.setBadgeBackgroundColor({ color: '#555' });
+
+// --- auto-lock (Ward): lock on screen lock / sleep and after the chosen minutes of system idle -----------------
+// chrome.idle wakes the service worker; the detection interval is re-applied on every start and setting change.
+async function applyAutoLock() {
+  if (!chrome.idle) return;
+  const { autoLock } = await local.get('autoLock');
+  chrome.idle.setDetectionInterval(Math.max(15, (autoLockMinutes(autoLock) || 240) * 60));
+}
+chrome.idle?.onStateChanged.addListener(async (idleState) => {
+  const settings = await local.get(['neverLock', 'autoLock']);
+  if (shouldAutoLock(idleState, settings)) await lockEverything(local, session);
+});
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.autoLock) applyAutoLock(); });
+applyAutoLock();
 
 // --- autofill shortcut (Ctrl/Cmd+Shift+L): the top login, as the popup's highlighted Fill -------------
 
@@ -309,9 +323,10 @@ async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentI
   // rpId must be the page's host, a registrable-domain suffix or a related origin, never a public suffix.
   if (page.origin !== origin || !https(origin)
     || (bw.isPublicSuffix(rpId) && !(host === 'localhost' && rpId === 'localhost'))) return fallback;
-  if (!(host === rpId || host.endsWith(`.${rpId}`)) && !(await relatedOrigins(rpId, origin))) return fallback;
+  // Ward: check the vault first, so a page can't make Ward fetch arbitrary hosts' .well-known/webauthn for nothing
   const version = stateVersion;
   if (!(await mayAnswer(kind, rpId))) return fallback;
+  if (!(host === rpId || host.endsWith(`.${rpId}`)) && !(await relatedOrigins(rpId, origin))) return fallback;
   if (version !== stateVersion) return fallback;
   const key = crypto.randomUUID();
   // One window per tab; the lock makes check-and-set atomic against a page firing many requests at once. The window
@@ -334,6 +349,7 @@ async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentI
 
 // e.g. www.facebook.com signing in with rpId accounts.meta.com, allowed by https://accounts.meta.com/.well-known/webauthn
 async function relatedOrigins(rpId, origin) {
+  if (/^[\d.]+$|[:[\]]/.test(rpId) || rpId === 'localhost' || !rpId.includes('.')) return false; // Ward: domains only, never IPs
   try {
     const r = await fetch(`https://${rpId}/.well-known/webauthn`, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error' });
     return r.ok && bw.relatedOrigin(await r.json(), origin);

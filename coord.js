@@ -26,3 +26,26 @@ export function mutateAccounts(local, mutate) {
     return next;
   });
 }
+
+// --- auto-lock (Ward) -------------------------------------------------------
+// autoLock setting in local storage: minutes of system idle before locking (0 = only when the browser quits).
+// Every setting except 0 also locks when the computer's screen locks or it sleeps. "Never lock" overrides it.
+export const AUTO_LOCK_CHOICES = [5, 15, 30, 60, 240, 0];
+export const AUTO_LOCK_DEFAULT = 30;
+export const autoLockMinutes = (v) => (AUTO_LOCK_CHOICES.includes(v) ? v : AUTO_LOCK_DEFAULT);
+
+// Decides whether an idle-state change locks: 'locked' (screen lock / sleep) and 'idle' (the detection interval,
+// set to the chosen minutes, passed with no input) lock unless Never lock is on or the choice is 0.
+export const shouldAutoLock = (state, { neverLock, autoLock } = {}) =>
+  !neverLock && autoLockMinutes(autoLock) > 0 && (state === 'locked' || state === 'idle');
+
+// Locks every vault: drops persisted keys first (so nothing can reopen one in between), then all session data,
+// which also discards pending save offers and passkey hand-offs. Same order as the popup's lockAll.
+export function lockEverything(local, session) {
+  return withStateLock(async () => {
+    const { accounts } = await local.get('accounts');
+    if (Array.isArray(accounts) && accounts.some((a) => a && a.persistKey))
+      await local.set({ accounts: accounts.map((a) => { if (!a || typeof a !== 'object') return a; const c = { ...a }; delete c.persistKey; return c; }) });
+    await session.clear();
+  });
+}
