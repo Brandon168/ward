@@ -122,6 +122,74 @@
     return true;
   }
 
+  // --- reading forms (Ward): "Save from this page" and save offers after a checkout/address form is submitted ---
+  const IDENTITY_KEY = { 'honorific-prefix': 'title', 'given-name': 'firstName', 'additional-name': 'middleName', 'family-name': 'lastName',
+    organization: 'company', 'address-line1': 'address1', 'address-line2': 'address2', 'address-line3': 'address3', 'address-level2': 'city',
+    'address-level1': 'state', 'postal-code': 'postalCode', country: 'country', 'country-name': 'country', email: 'email', tel: 'phone', 'tel-national': 'phone' };
+  const monthOf = (v) => {
+    const t = String(v || '').trim().toLowerCase();
+    const n = parseInt(t, 10);
+    if (n >= 1 && n <= 12) return String(n);
+    const i = MONTHS.findIndex((m) => t.startsWith(m.slice(0, 3)));
+    return i >= 0 ? String(i + 1) : '';
+  };
+  const yearOf = (v) => { const t = String(v || '').replace(/\D/g, ''); return t.length === 2 ? `20${t}` : t.length === 4 ? t : ''; };
+  // A select's value, or its text when the value is an internal id; short codes (US, IL) are kept as codes.
+  const selected = (el) => { const o = el.selectedOptions?.[0]; if (!o || !o.value) return ''; return o.value.length <= 3 || !/^\d+$/.test(o.value) ? o.value : o.textContent.trim(); };
+  // typedOnly: only values the user entered (inpage.js records trusted input), so a page can't plant data to save.
+  function readForm(want, typedOnly) {
+    const typed = globalThis.bwliteTyped;
+    const out = {};
+    for (const el of document.querySelectorAll('input, select, textarea')) {
+      if (!usable(el) || SKIP.test(el.type || '')) continue;
+      const kind = classify(hints(el), want);
+      if (!kind || (el.type === 'password' && kind !== 'cc-csc')) continue;
+      const raw = el.tagName === 'SELECT' ? selected(el) : String(el.value || '').trim();
+      if (!raw || raw.length > 200) continue;
+      if (typedOnly && typed?.get(el) !== el.value) continue;
+      const set = (k, v) => v && !out[k] && (out[k] = v);
+      if (want === 'card') {
+        if (kind === 'cc-number') set('number', raw.replace(/[\s-]/g, ''));
+        else if (kind === 'cc-name') set('cardholderName', raw);
+        else if (kind === 'cc-csc') set('code', raw);
+        else if (kind === 'cc-exp-month') set('expMonth', monthOf(raw));
+        else if (kind === 'cc-exp-year') set('expYear', yearOf(raw));
+        else if (kind === 'cc-exp') {
+          const m = raw.replace(/\s+/g, '').match(/^(\d{1,2})[/-]?(\d{2}|\d{4})$/);
+          if (m) set('expMonth', monthOf(m[1])), set('expYear', yearOf(m[2]));
+        }
+      } else if (kind === 'name') {
+        const parts = raw.split(/\s+/);
+        set('firstName', parts[0]);
+        if (parts.length > 1) set('lastName', parts.slice(1).join(' '));
+      } else if (kind === 'street-address') {
+        const [l1, l2, l3] = raw.split(/\n|,\s*/);
+        set('address1', l1), set('address2', l2), set('address3', l3);
+      } else if (IDENTITY_KEY[kind]) set(IDENTITY_KEY[kind], raw);
+    }
+    if (want === 'card' && out.number && !/^\d{12,19}$/.test(out.number)) delete out.number;
+    return out;
+  }
+  globalThis.wardReadForm = (want, typedOnly = false) => readForm(want, typedOnly);
+
+  // Watching a frame where the user typed into a card/address field (background.js injects this on request from
+  // inpage.js): typed values go to background.js as a per-tab draft, so card fields in a payment iframe and the
+  // address in the page add up to one offer when the page's form is submitted.
+  globalThis.wardWatch = () => {
+    if (globalThis.wardOnSubmit) return;
+    let timer;
+    const draft = (submit) => {
+      const card = readForm('card', true), identity = readForm('identity', true);
+      if (!submit && !Object.keys(card).length && !Object.keys(identity).length) return;
+      chrome.runtime.sendMessage({ wardDraft: { card, identity, submit: !!submit } }).catch(() => {});
+    };
+    const soon = () => { clearTimeout(timer); timer = setTimeout(() => draft(false), 400); };
+    document.addEventListener('input', (e) => e.isTrusted && soon(), true);
+    document.addEventListener('change', (e) => e.isTrusted && soon(), true);
+    globalThis.wardOnSubmit = () => { clearTimeout(timer); draft(true); }; // called by inpage.js's submit capture
+    soon();
+  };
+
   // want: 'card' | 'identity'; d: the card or identity fields. Returns how many fields were filled.
   globalThis.wardFillForm = (want, d) => {
     if (!d || (want !== 'card' && want !== 'identity')) return 0;

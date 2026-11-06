@@ -42,6 +42,12 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
       embedded card box. Don't submit anything.
     - On a shipping/address form, Fill an identity: name, address lines, city, state (dropdown), ZIP, country, phone, email.
     - Items set to "Master password re-prompt" in Bitwarden ask for it before Fill or copying the number/code.
+11. **Saving cards and addresses**:
+    - On a checkout/address form, type a test card and an address yourself, then submit (a test/sandbox shop, or a
+      form that fails safely). Ward's bar says "Ward found a card and an address to save" → Review save → both
+      ticked, security code unticked → Save. They appear under Cards / Identities.
+    - Submitting the same card/address again offers nothing. Values a page fills in by itself are never offered.
+    - **from page** (Cards/Identities tab, on a page with the form filled in) opens a pre-filled new item to review.
 
 ## What's not there yet
 

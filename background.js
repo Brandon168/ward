@@ -2,7 +2,7 @@
 // "save this login?" offer. It reads the vaults the popup has opened (session storage); writing stays in the
 // extension-owned save confirmation and passkey windows.
 import * as bw from './bw.js';
-import { fillTab } from './autofill.js';
+import { fillTab, formFrameAllowed } from './autofill.js';
 import { withStateLock, lockEverything, shouldAutoLock, autoLockMinutes } from './coord.js';
 import { syncOpenVault, liveHub, freshTokens, SYNC_EVERY_MIN } from './sync.js';
 
@@ -223,7 +223,79 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (version !== stateVersion) return session.remove(`save:${key}`);
   chrome.tabs.sendMessage(tabId, { bwliteBar: key }, { frameId: 0 }).catch(() => session.remove(`save:${key}`));
 });
-chrome.tabs.onRemoved.addListener((tabId) => session.remove(`pending:${tabId}`));
+chrome.tabs.onRemoved.addListener((tabId) => session.remove([`pending:${tabId}`, `draft:${tabId}`]));
+
+// --- card and address save offers (Ward) ------------------------------------------------------------------
+// inpage.js asks to watch a frame where the user typed into a card/address field; formfill.js then sends drafts of
+// the values the user typed. Drafts from all frames of a tab merge (card fields often sit in a payment iframe).
+// After a submit, when the page loads or 2.5 s later (single-page checkouts), a card or address that isn't in the
+// vault yet is offered through the same review window as logins. Drafts live in memory-only session storage.
+const CARD_KEYS = ['cardholderName', 'number', 'expMonth', 'expYear', 'code'];
+const IDENTITY_KEYS = ['title', 'firstName', 'middleName', 'lastName', 'company', 'address1', 'address2', 'address3', 'city', 'state',
+  'postalCode', 'country', 'email', 'phone'];
+const clean = (o, keys) => Object.fromEntries(keys.filter((k) => typeof o?.[k] === 'string' && o[k] && o[k].length <= 200).map((k) => [k, o[k]]));
+const watched = new Set();
+const luhn = (n) => /^\d{12,19}$/.test(n) && [...n].reverse().reduce((s, d, i) => s + (i % 2 ? [0, 2, 4, 6, 8, 1, 3, 5, 7, 9][d] : +d), 0) % 10 === 0;
+const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+async function watchFrame(sender) {
+  if (!sender.tab || !https(sender.url) || !https(sender.tab.url)) return null;
+  const key = sender.documentId || `${sender.tab.id}:${sender.frameId}`;
+  if (watched.has(key)) return null;
+  if (!formFrameAllowed('card', sender.tab.url, sender.url) && !formFrameAllowed('identity', sender.tab.url, sender.url)) return null;
+  if (!(await vault()).open) return null; // nothing to save into
+  watched.add(key);
+  const target = sender.documentId ? { tabId: sender.tab.id, documentIds: [sender.documentId] } : { tabId: sender.tab.id, frameIds: [sender.frameId] };
+  await chrome.scripting.executeScript({ target, files: ['formfill.js'] }).catch(() => {});
+  await chrome.scripting.executeScript({ target, func: () => globalThis.wardWatch?.() }).catch(() => {});
+  return null;
+}
+
+async function draftFrom(sender, d) {
+  const tabId = sender.tab?.id;
+  if (!Number.isInteger(tabId) || !d || typeof d !== 'object' || !https(sender.tab.url) || !https(sender.url)) return;
+  const top = new URL(sender.tab.url), key = `draft:${tabId}`;
+  const { [key]: old } = await session.get(key);
+  const fresh = old && Date.now() - old.at < 15 * 60e3 && old.origin === top.origin ? old : null;
+  if (!fresh && !d.card && !d.identity) return; // a submit with nothing typed anywhere
+  const card = formFrameAllowed('card', sender.tab.url, sender.url) ? clean(d.card, CARD_KEYS) : {};
+  const identity = formFrameAllowed('identity', sender.tab.url, sender.url) ? clean(d.identity, IDENTITY_KEYS) : {};
+  const next = { at: Date.now(), origin: top.origin, domain: bw.baseDomain(top.hostname),
+    card: { ...fresh?.card, ...card }, identity: { ...fresh?.identity, ...identity }, submittedAt: fresh?.submittedAt };
+  if (d.submit === true) next.submittedAt = Date.now();
+  await session.set({ [key]: next });
+  if (d.submit === true) setTimeout(() => offerDraft(tabId), 2500);
+}
+
+async function offerDraft(tabId, tab) {
+  const key = `draft:${tabId}`;
+  const { [key]: d } = await session.get(key);
+  if (!d?.submittedAt || Date.now() - d.submittedAt > 60e3) return;
+  let current;
+  try { current = new URL((tab || await chrome.tabs.get(tabId)).url); } catch { return; }
+  if (current.protocol !== 'https:' || bw.baseDomain(current.hostname) !== d.domain) return;
+  await session.remove(key); // offered once, or dropped
+  const version = stateVersion;
+  const v = await vault();
+  if (version !== stateVersion || !v.open || v.neverSave.includes(new URL(d.origin).hostname)) return;
+  const number = (d.card.number || '').replace(/\D/g, '');
+  const card = luhn(number) && !v.items.some((i) => i.type === 3 && (i.card?.number || '').replace(/\D/g, '') === number)
+    ? { ...d.card, number, brand: bw.cardBrand(number) } : null;
+  const id = d.identity;
+  const addressy = id.address1 && (id.postalCode || id.city);
+  const known = v.items.some((i) => i.type === 4 && norm(i.identity?.address1) === norm(id.address1)
+    && (!id.postalCode || norm(i.identity?.postalCode) === norm(id.postalCode)));
+  const identity = addressy && !known ? id : null;
+  if (!card && !identity) return;
+  const save = crypto.randomUUID();
+  await session.set({ [`save:${save}`]: { kind: 'form', card, identity, origin: d.origin, domain: d.domain, tabId, expires: Date.now() + 120e3 } });
+  if (version !== stateVersion) return session.remove(`save:${save}`);
+  const what = card && identity ? 'card and address' : card ? 'card' : 'address';
+  chrome.tabs.sendMessage(tabId, { bwliteBar: save, what }, { frameId: 0 }).catch(() => session.remove(`save:${save}`));
+}
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status === 'complete' || (info.url && tab.status === 'complete')) offerDraft(tabId, tab).catch(() => {});
+});
 
 // The page bar only asks for review. The offer itself stays in session storage
 // and is opened in an extension window after Chrome authenticates the sender's
@@ -250,7 +322,7 @@ async function openSave(key, sender) {
     const opened = { ...offer, opened: true };
     await session.set({ [keyName]: opened });
     try {
-      await chrome.windows.create({ url: `popup.html#save=${key}`, type: 'popup', width: 410, height: 240 });
+      await chrome.windows.create({ url: `popup.html#save=${key}`, type: 'popup', width: 410, height: offer.kind === 'form' ? 360 : 240 });
       return { opened: true };
     } catch {
       await session.set({ [keyName]: offer });
@@ -298,6 +370,8 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     : m?.bwliteMenu === true && sender.tab && http(sender.url) ? menu(sender)
     : typeof m?.bwliteFillKey === 'string' && m.bwliteFillKey.length < 200 && sender.tab && http(sender.url) ? fillFromMenu(m.bwliteFillKey, sender)
     : m?.bwliteSubmit && sender.tab ? submitted(sender.tab.id, sender.url, m.bwliteSubmit).then(() => null)
+    : m?.wardWatch === true && sender.tab ? watchFrame(sender)
+    : m?.wardDraft && sender.tab ? draftFrom(sender, m.wardDraft).then(() => null)
     : typeof m?.bwliteSaveOpen === 'string' ? openSave(m.bwliteSaveOpen, sender)
     : m?.bwliteUsed && typeof m.bwliteUsed.a === 'string' && m.bwliteUsed.a.length < 65
       && typeof m.bwliteUsed.id === 'string' && m.bwliteUsed.id.length < 200 ? markUsed(m.bwliteUsed)

@@ -524,6 +524,49 @@ assert.equal(sessionStore.data.get(`save:${subKey}`).origin, 'https://login.two.
 assert.equal(sessionStore.data.has('pending:7'), false, 'a pending login is offered once');
 assert.equal((await sendRuntime({ bwliteSaveOpen: subKey }, { tab: { id: 7 }, frameId: 0, url: 'https://two.example/home' })).opened, true,
   'the save offer opens from another page of the same site');
+
+{ // Ward: card/address drafts from several frames merge into one save offer after a submit
+  await localStore.set({ accounts: [{ id: 'w', server: 'https://vault.example', email: 'w@x.y', label: 'W' }], neverSave: [] });
+  await sessionStore.set({ 'w:key': testSessionKey, 'w:list': JSON.stringify([
+    { id: 'k1', type: 3, name: 'Old', uris: [], card: { number: '5555555555554444' } },
+    { id: 'k2', type: 4, name: 'Home', uris: [], identity: { address1: '9 Elm St', postalCode: '10001' } }]) });
+  const top = { tab: { id: 9, url: 'https://shop.example/checkout' }, url: 'https://shop.example/checkout', frameId: 0 };
+  const stripe = { tab: { id: 9, url: 'https://shop.example/checkout' }, url: 'https://js.stripe.com/v3/elements', frameId: 4 };
+  const evil = { tab: { id: 9, url: 'https://shop.example/checkout' }, url: 'https://evil.example/frame', frameId: 5 };
+  const offers = () => [...sessionStore.data.entries()].filter(([k, v]) => k.startsWith('save:') && v.kind === 'form').map(([, v]) => v);
+  const complete = async (url) => { for (const fn of tabUpdates) await fn(9, { status: 'complete' }, { id: 9, url, status: 'complete' }); await new Promise((r) => setTimeout(r, 20)); };
+  await sendRuntime({ wardDraft: { card: { number: '4111111111111111', expMonth: '3', expYear: '2029', code: '123' }, identity: {} } }, stripe);
+  await sendRuntime({ wardDraft: { card: { number: '4242424242424242' }, identity: { address1: 'planted' } } }, evil);
+  await sendRuntime({ wardDraft: { card: {}, identity: { firstName: 'Ann', lastName: 'Lee', address1: '1 Main St', city: 'Springfield', postalCode: '62701' } } }, top);
+  const d = sessionStore.data.get('draft:9');
+  assert.equal(d.card.number, '4111111111111111', 'the payment iframe supplies the card');
+  assert.equal(d.identity.address1, '1 Main St', 'a third-party frame cannot plant values');
+  assert.equal(offers().length, 0, 'nothing is offered before a submit');
+  await complete('https://shop.example/checkout');
+  assert.equal(offers().length, 0, 'a page load without a submit offers nothing');
+  await sendRuntime({ wardDraft: { submit: true } }, top);
+  await complete('https://shop.example/thanks');
+  const [o] = offers();
+  assert.ok(o, 'submit then load offers the card and address');
+  assert.equal(o.card.number, '4111111111111111');
+  assert.equal(o.card.brand, 'Visa');
+  assert.equal(o.identity.city, 'Springfield');
+  assert.equal(sentTabs.at(-1)[1].what, 'card and address');
+  assert.equal(sessionStore.data.has('draft:9'), false, 'a draft is offered once');
+  // already saved card / address, a bad number, a non-https page
+  for (const [k] of [...sessionStore.data.entries()].filter(([k]) => k.startsWith('save:'))) sessionStore.data.delete(k);
+  await sendRuntime({ wardDraft: { card: { number: '5555555555554444' }, identity: { address1: '9 Elm St', postalCode: '10001', city: 'NYC' }, submit: true } }, top);
+  await complete('https://shop.example/thanks');
+  assert.equal(offers().length, 0, 'a card or address already in the vault is not offered again');
+  await sendRuntime({ wardDraft: { card: { number: '4111111111111112' }, identity: {}, submit: true } }, top);
+  await complete('https://shop.example/thanks');
+  assert.equal(offers().length, 0, 'a number failing the Luhn check is not a card');
+  const plain = { tab: { id: 9, url: 'http://shop.example/checkout' }, url: 'http://shop.example/checkout', frameId: 0 };
+  await sendRuntime({ wardDraft: { card: { number: '4111111111111111' }, identity: {}, submit: true } }, plain);
+  assert.equal(sessionStore.data.has('draft:9'), false, 'nothing is collected on http pages');
+  await sessionStore.remove(['w:key', 'w:list', 'draft:9']);
+  await localStore.set({ accounts: [] });
+}
 console.log('background cache, write, RP, and save-scope checks ok');
 
 // Source-loaded popup harness. It evaluates the production popup code in a
@@ -640,7 +683,7 @@ function makePopup(hash, initial = {}, options = {}) {
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
-    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch, storeSync, fillFormTab: async () => 0,
+    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch, storeSync, fillFormTab: async () => 0, formFrameAllowed,
     navigator: { clipboard: { writeText: async () => {} } }, localStorage: {},
     crypto: globalThis.crypto || nodeCrypto.webcrypto, TextDecoder, URL, Intl, structuredClone,
     console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
@@ -763,6 +806,34 @@ await expirySave.api.start();
 await new Promise((resolve) => setTimeout(resolve, 35));
 assert.equal(expirySave.closed, true, 'an open save offer closes when its expiry timer fires');
 assert.equal(expirySave.app.children.length, 0, 'expired save UI is cleared');
+
+{ // Ward: a card + address offer saves each ticked item; the security code only when ticked
+  const saves = [];
+  const findText = (node, t) => (node?.textContent === t ? node : (node?.children || []).reduce((f, c) => f || findText(c, t), null));
+  const checks = (node) => (node?.tagName === 'INPUT' && node.type === 'checkbox' ? [node] : []).concat(...(node?.children || []).map(checks));
+  const formSave = makePopup('#save=form', {
+    local: { accounts: [popupAccount('form')], 'form:profile': { privateKey: 'x', organizations: [] } },
+    session: { 'save:form': { kind: 'form', origin: 'https://shop.example', domain: 'shop.example', tabId: 9, expires: Date.now() + 10_000,
+      card: { number: '4111111111111111', expMonth: '3', expYear: '2029', code: '123', brand: 'Visa' },
+      identity: { firstName: 'Ann', lastName: 'Lee', address1: '1 Main St', city: 'Springfield' } },
+    'form:key': popupKey, 'form:list': JSON.stringify(popupList('form')) },
+  }, { tabs: [{ id: 99, url: 'chrome-extension://other/popup.html' }], bw: {
+    saveCipher: async (_s, _k, item, v) => (saves.push(v), { id: `new-${saves.length}`, type: v.type }),
+    decryptVault: async (sync) => sync.ciphers.map((c) => ({ id: c.id, type: c.type, name: 'x', uris: [] })) } });
+  await formSave.api.start();
+  assert.match(textOf(formSave.app), /Visa •••• 1111 · 03\/29/);
+  assert.match(textOf(formSave.app), /1 Main St/);
+  const [cardBox, codeBox, idBox] = checks(formSave.app);
+  assert.deepEqual([cardBox.checked, codeBox.checked, idBox.checked], [true, false, true], 'card and address ticked, security code not');
+  await findText(formSave.app, 'Save').onclick();
+  for (let i = 0; i < 50 && saves.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(saves.length, 2);
+  assert.equal(saves[0].type, 3);
+  assert.equal(saves[0].card.code, '', 'the security code is left out unless ticked');
+  assert.equal(saves[0].name, 'Visa 1111');
+  assert.equal(saves[1].type, 4);
+  assert.equal(saves[1].name, 'Ann Lee');
+}
 
 const framedSave = makePopup('#save=framed', {
   session: { 'save:framed': { ...saveBase, expires: Date.now() + 10_000 } },

@@ -10,6 +10,7 @@
 - Touch ID unlock (experimental, WebAuthn PRF), with in-window diagnostics
 - Background sync every 5 min and live sync over Vaultwarden's notification hub
 - Cards, identities and secure notes: browse, edit, copy, fill checkout and address forms (0.2.0)
+- Save offers for typed cards and addresses after a submit; "from page" (0.3.0)
 
 ## Next
 1. Touch ID: act on the Vivaldi test. If PRF works for extension pages, polish (prompt automatically when the

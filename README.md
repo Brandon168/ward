@@ -34,6 +34,11 @@ Loading from a specific commit means nothing changes until you pull and reload o
   checkout or address form (https pages only). Cards may fill the site's own frames and known payment-provider
   frames (Stripe, Braintree, Adyen, PayPal, Square, Shopify and others); identities the site's own frames only.
   The form filler (`formfill.js`) is injected only when you press Fill.
+- Saving cards and addresses: after you submit a checkout or address form, Ward offers to save a card or address
+  you typed that isn't in the vault yet (review window with checkboxes; the security code only if you tick it).
+  Only values you typed count (a page can't plant them), https pages only, card fields from the site or known
+  payment-provider frames, drafts kept in memory-only session storage. **from page** on the Cards/Identities tab
+  reads the current form into a new item for you to review.
 
 ## Security model
 

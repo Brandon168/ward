@@ -131,11 +131,30 @@ if (!globalThis.bwliteFill) {
   // Ward: only a submit that follows real user input counts, at most one every 2 s, so a page can't script
   // submissions to probe whether a guessed password matches the saved one (no offer appears when it does).
   // Ward: and only password values the user typed (a trusted input event), so a page can't plant guesses.
-  const typed = new WeakMap();
-  document.addEventListener('input', (e) => e.isTrusted && e.target instanceof HTMLInputElement && typed.set(e.target, e.target.value), true);
+  const typed = globalThis.bwliteTyped = new WeakMap(); // shared with formfill.js (same isolated world)
+  // Ward: typing into something that looks like a card or address field asks background.js to watch this frame
+  // (it injects formfill.js), so the card or address can be offered for saving after the form is submitted.
+  const FORMISH = /cc-|card|cvv|cvc|csc|expir|\bexp|zip|postal|address|street|\bcity\b|first.?name|last.?name|given|family|phone/i;
+  let watching = false;
+  const note = (e) => {
+    const el = e.target;
+    if (!e.isTrusted || !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement)) return;
+    typed.set(el, el.value);
+    if (!watching && el.type !== 'password' && location.protocol === 'https:'
+      && FORMISH.test(`${el.autocomplete} ${el.name} ${el.id} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`)) {
+      watching = true;
+      chrome.runtime.sendMessage({ wardWatch: true }).catch(() => {});
+    }
+  };
+  document.addEventListener('input', note, true);
+  document.addEventListener('change', note, true);
   let lastSent = '', lastAt = -1e9;
   function capture() {
     if (navigator.userActivation && !navigator.userActivation.isActive) return;
+    // a watched card/address form (formfill.js) sends its draft; otherwise just say a form was submitted, which
+    // completes a draft from a payment iframe (the Pay button is in this frame, the card fields in the iframe)
+    if (globalThis.wardOnSubmit) globalThis.wardOnSubmit();
+    else chrome.runtime.sendMessage({ wardDraft: { submit: true } }).catch(() => {});
     const { all, user } = loginFields(true);
     const pws = all.filter((i) => i.type === 'password' && i.value && typed.get(i) === i.value);
     const username = user?.value.trim() || '';
@@ -159,7 +178,7 @@ if (!globalThis.bwliteFill) {
     root.append(b);
     return b;
   };
-  const showSave = (key) => {
+  const showSave = (key, what) => {
     removeBar();
     bar = document.createElement('bwlite-save');
     bar.style.cssText = 'all: initial; position: fixed; top: 12px; right: 12px; z-index: 2147483647;';
@@ -174,7 +193,7 @@ if (!globalThis.bwliteFill) {
     root.append(style);
     const box = document.createElement('div');
     const message = document.createElement('p');
-    message.textContent = 'Ward found a login to save.';
+    message.textContent = `Ward found ${what === 'card' ? 'a card' : what === 'address' ? 'an address' : what === 'card and address' ? 'a card and an address' : 'a login'} to save.`;
     box.append(message);
     const review = button(box, 'Review save', async (e) => {
       if (!e.isTrusted) return;
@@ -189,6 +208,6 @@ if (!globalThis.bwliteFill) {
   };
   chrome.runtime.onMessage.addListener((m) => {
     if (typeof m?.bwliteBar !== 'string' || !/^[0-9a-f-]{20,100}$/.test(m.bwliteBar) || window !== top) return;
-    showSave(m.bwliteBar);
+    showSave(m.bwliteBar, m.what);
   });
 }

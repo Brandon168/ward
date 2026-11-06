@@ -43,6 +43,16 @@ before fixing. Status reflects the current `main`.
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
 
+## Card and address capture (0.3.0)
+
+Design constraints, all covered by tests: only values from trusted input/change events (`bwliteTyped`, shared by
+inpage.js and formfill.js in the extension's isolated world) are captured; capture starts only after typing into a
+card/address-looking field on an https page; card values are accepted only from same-site or known payment-provider
+frames, identity values only from same-site frames; drafts are memory-only (session storage), merged per tab, offered
+once after a submit, dropped after 15 min, on tab close and on lock; nothing is saved without Save in the extension's
+own window, and the security code is unticked by default. A page can learn whether a card it saw you type is already
+saved (the bar appears or not); it already saw the number.
+
 ## Second review: Ward's own changes (2026-11-06)
 
 A second independent review covered everything changed since the seed (`1d77b9e..HEAD`). It found no deadlocks,

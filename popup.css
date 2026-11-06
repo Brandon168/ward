@@ -67,3 +67,5 @@ nav.kinds button { all: unset; cursor: pointer; padding: 4px 8px; font-size: 12p
 nav.kinds button.on { color: var(--fg); border-bottom-color: currentColor; }
 nav.kinds button:hover { color: var(--fg); }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.checks { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+.checks label.check { white-space: normal; }

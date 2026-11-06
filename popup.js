@@ -1,5 +1,5 @@
 import * as bw from './bw.js';
-import { fillTab, fillFormTab } from './autofill.js';
+import { fillTab, fillFormTab, formFrameAllowed } from './autofill.js';
 import * as touch from './touch.js';
 import { storeSync } from './sync.js';
 import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
@@ -164,8 +164,10 @@ async function start() {
     saveCancelled = false;
     let offer;
     try { offer = new URL(sv.origin); } catch { return closeSave(); }
-    if (!['add', 'update'].includes(sv.kind) || !/^https?:$/i.test(offer.protocol) || offer.origin !== sv.origin
-      || !Number.isFinite(sv.expires) || sv.expires <= Date.now() || typeof sv.password !== 'string'
+    const formOffer = sv.kind === 'form' && offer.protocol === 'https:' && (sv.card || sv.identity)
+      && (!sv.card || typeof sv.card === 'object') && (!sv.identity || typeof sv.identity === 'object');
+    if ((!['add', 'update'].includes(sv.kind) && !formOffer) || !/^https?:$/i.test(offer.protocol) || offer.origin !== sv.origin
+      || !Number.isFinite(sv.expires) || sv.expires <= Date.now() || (!formOffer && typeof sv.password !== 'string')
       || (sv.kind === 'update' && (!/^[\w-]{1,64}$/.test(sv.a) || typeof sv.id !== 'string'))) return closeSave();
     // The background authenticated the originating tab and origin before it
     // opened this extension window. Do not rely on whichever tab happens to
@@ -529,7 +531,7 @@ async function lockAll() {
 async function fullItem(a, raw) {
   if (!a || !keys[a.id] || !raw || typeof raw !== 'object') throw new Error('Login is no longer available; sync and try again');
   const { [`${a.id}:profile`]: profile } = await local.get(`${a.id}:profile`);
-  if (!profile || typeof profile !== 'object' || typeof profile.privateKey !== 'string') throw new Error('Login profile is missing; sync and try again');
+  if (!profile || typeof profile !== 'object' || typeof profile.privateKey !== 'string') throw new Error('Vault data is missing; sync and try again');
   const [item] = await bw.decryptVault({ profile, ciphers: [raw] }, keys[a.id]);
   if (!item) throw new Error('Could not decrypt this login; sync and try again');
   return { ...item, a: a.id };
@@ -763,7 +765,8 @@ function vaultView() {
     top = formPage && (kind === 3 || kind === 4) ? items[0] || null : null;
     context.replaceChildren(items.length ? `${items.length} ${items.length === 1 ? kindName(kind) : label}${s ? ` matching “${q.value.trim()}”` : ''}${items.length > 50 ? ', first 50 shown' : ''}`
       : s ? `No ${label} matching “${q.value.trim()}”` : `No ${label} yet.`,
-    (kind === 3 || kind === 4) && !formPage && items.length ? ' Fill works on https pages.' : '');
+    (kind === 3 || kind === 4) && !formPage && items.length ? ' Fill works on https pages.' : '',
+    (kind === 3 || kind === 4) && formPage ? quiet('from page', `New ${kindName(kind)} from the form on this page`, () => fromPage(kind).catch((e) => status(e.message))) : '');
     renderGroups(items.slice(0, 50));
   };
   const renderGroups = (shown) => {
@@ -882,8 +885,8 @@ function editView(item) {
 }
 
 // Ward: add/edit a secure note (2), card (3) or identity (4). item: the full decrypted item (openEdit) or null.
-function otherEditView(item, t) {
-  const c = item?.card || {}, d = item?.identity || {};
+function otherEditView(item, t, prefill) {
+  const c = item?.card || prefill?.card || {}, d = item?.identity || prefill?.identity || {};
   const input = (value, props = {}) => h('input', { value: value || '', ...props });
   const secret = (value, props = {}) => {
     const el = input(value, { type: 'password', autocomplete: 'off', ...props });
@@ -1181,6 +1184,7 @@ function passkeyView() {
 // The "save this login?" bar. sv: { kind: 'add' | 'update', username, password, origin, a?, id? } from background.js.
 function saveView() {
   if (mode !== 'save' || !sv) return closeSave();
+  if (sv.kind === 'form') return formSaveView();
   const { kind, username, password, origin } = sv;
   const expires = sv.expires;
   const err = h('p', { className: 'err' });
@@ -1216,6 +1220,74 @@ function saveView() {
     h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')),
     h('p', {}, kind === 'add' ? `Save the login${username ? ` for ${username}` : ''}?` : `Update the password for ${username || 'this login'}?`),
     h('div', { className: 'inline' }, target, save, never, h('button', { onclick: close }, 'Not now')), err);
+}
+
+// Ward: a card and/or address the user typed into a checkout or address form. Each is a checkbox; the security code
+// is only saved when ticked. Nothing reaches the vault without Save here.
+function formSaveView() {
+  const { card, identity, origin } = sv;
+  const expires = sv.expires;
+  const err = h('p', { className: 'err' });
+  const valid = () => sv && sv.expires === expires && expires > Date.now();
+  saveTimer = setTimeout(() => sv?.expires === expires && closeSave(), Math.max(0, expires - Date.now()));
+  const check = (checked, text, title) => { const el = h('input', { type: 'checkbox', checked }); return [el, h('label', { className: 'check', title }, el, text)]; };
+  const last4 = (card?.number || '').slice(-4);
+  const exp = card && (card.expMonth || card.expYear) ? ` · ${String(card.expMonth || '?').padStart(2, '0')}/${String(card.expYear || '??').slice(-2)}` : '';
+  const [cardBox, cardRow] = card ? check(true, `Card: ${card.brand || 'Card'} •••• ${last4}${exp}${card.cardholderName ? ` · ${card.cardholderName}` : ''}`) : [];
+  const [codeBox, codeRow] = card?.code ? check(false, 'Also save the security code', 'Most people leave it out; sites ask for it each time') : [];
+  const who = identity && [identity.firstName, identity.lastName].filter(Boolean).join(' ');
+  const [idBox, idRow] = identity ? check(true, `Address: ${[who, identity.address1, identity.city || identity.postalCode].filter(Boolean).join(', ')}`) : [];
+  const target = unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
+  const save = h('button', {
+    className: 'primary',
+    onclick: () => run(save, err, async () => {
+      if (saveCancelled || !valid()) return closeSave();
+      const a = acct(target ? target.value : unlocked()[0].id);
+      if (!a || !keys[a.id]) return closeSave();
+      if (card && cardBox.checked) {
+        const c = { ...card, code: codeBox?.checked ? card.code : '' };
+        if (!await saveItem(a, null, { type: 3, name: `${c.brand || 'Card'} ${last4}`, notes: '', card: c }, valid)) return closeSave();
+      }
+      if (identity && idBox.checked) {
+        if (!await saveItem(a, null, { type: 4, name: who || identity.address1, notes: '', identity }, valid)) return closeSave();
+      }
+      closeSave();
+    }),
+  }, 'Save');
+  const never = h('button', {
+    title: `Never offer to save anything for ${new URL(origin).hostname}`,
+    onclick: async () => {
+      if (!valid()) return closeSave();
+      const { neverSave = [] } = await local.get('neverSave');
+      await local.set({ neverSave: [...new Set((Array.isArray(neverSave) ? neverSave : []).concat(new URL(origin).hostname))] });
+      closeSave();
+    },
+  }, 'Never');
+  app.replaceChildren(
+    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')),
+    h('p', {}, `Save from ${new URL(origin).hostname}?`),
+    h('div', { className: 'checks' }, cardRow, codeRow, idRow),
+    target && field('Vault', target),
+    h('div', { className: 'inline' }, save, never, h('button', { onclick: closeSave }, 'Not now')), err);
+}
+
+// Ward: "from page" on the Cards/Identities tab: read the card or address form on this page (values as they are,
+// you review them before saving) into a new item.
+async function fromPage(t) {
+  const want = t === 3 ? 'card' : 'identity';
+  const frames = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => location.href });
+  const top = frames.find((r) => r.frameId === 0)?.result;
+  const out = {};
+  for (const f of frames.filter((r) => formFrameAllowed(want, top, r.result))) {
+    const target = f.documentId ? { tabId: tab.id, documentIds: [f.documentId] } : { tabId: tab.id, frameIds: [f.frameId] };
+    try {
+      await chrome.scripting.executeScript({ target, files: ['formfill.js'] });
+      const [r] = await chrome.scripting.executeScript({ target, args: [want], func: (w) => globalThis.wardReadForm?.(w) || {} });
+      for (const [k, v] of Object.entries(r?.result || {})) if (typeof v === 'string' && v && !out[k]) out[k] = v.slice(0, 200);
+    } catch {}
+  }
+  if (!Object.keys(out).length) return status(`No ${want === 'card' ? 'card' : 'address'} details found in this page's form`);
+  otherEditView(null, t, want === 'card' ? { card: { ...out, brand: bw.cardBrand(out.number) } } : { identity: out });
 }
 
 document.addEventListener('keydown', (e) => {
