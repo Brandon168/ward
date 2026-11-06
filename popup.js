@@ -26,6 +26,7 @@ const guarded = (i, fn) => (i.reprompt ? repromptView(i, fn) : fn());
 // an extension-owned save confirmation window. pk / sv are hand-offs from session storage.
 const [mode, modeKey] = location.hash.slice(1).split('=');
 let pk, sv;
+if (mode) document.body.classList.add('window'); // a window of its own, not the toolbar popup
 let saveCancelled = false;
 let saveTimer;
 
@@ -704,6 +705,15 @@ function avatar(i) {
   return h('span', { className: 'av', style: `background:${t === 3 ? '#374151' : t === 4 ? '#0891b2' : '#6b7280'}` }, icon(t === 3 ? 'card' : t === 4 ? 'person' : 'note', 16));
 }
 
+// Windows background.js opens for a page (passkey, save offers) share one layout, built from the popup's own parts:
+// the brand bar (so it is clearly Ward, not the page), a title that names the site, choices as list rows, then one
+// action row (primary first, the way out last). The window fills its width and fits its height to the content.
+const siteAvatar = (name) => h('span', { className: 'av', style: `background:${hue(name)}` }, (name || '?').trim()[0]?.toUpperCase() || '?');
+const promptHead = (heading) => [h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')), title(heading)];
+const promptActions = (...kids) => h('div', { className: 'inline wrap' }, ...kids);
+const choice = (i, name, sub, ...btns) => h('div', { className: 'item choice' }, i ? avatar(i) : siteAvatar(name),
+  h('div', { className: 'info' }, h('b', { title: name }, name), sub && h('small', {}, sub)), h('div', { className: 'actions' }, ...btns));
+
 // The one-time code button: a pie that empties as the code's time runs out (red for the last 5 s); a click copies the
 // current code. The digits stay off screen (screen shares, shoulders); Fill and the copy put them on the clipboard.
 function codeButton(i) {
@@ -1230,8 +1240,6 @@ function passkeyView() {
   const { kind, rpId, origin, options: o } = pk;
   const err = h('p', { className: 'err' });
   const multi = unlocked().length > 1;
-  const pkRow = (text, sub, btn) => h('div', { className: 'row' },
-    h('div', { className: 'info' }, h('b', { title: text }, text), sub && h('small', {}, sub)), h('div', { className: 'actions' }, btn));
   const action = (text, primary, fn) => {
     const b = h('button', { type: 'button', className: primary ? 'primary' : '', onclick: () => run(b, err, fn) }, text);
     return b;
@@ -1246,31 +1254,31 @@ function passkeyView() {
   const mine = vault.flatMap((i) => (i.passkeys || []).filter((p) => typeof p.rpId === 'string' && p.rpId.toLowerCase() === rpId).map((p) => {
     try { return { i, p, id: bw.b64u(bw.credIdBytes(p.credentialId)) }; } catch { return null; }
   }).filter(Boolean));
-  const others = h('div', { className: 'inline' },
-    h('button', { type: 'button', onclick: () => answer({ fallback: true }) }, 'Use device or security key'),
-    h('button', { type: 'button', onclick: () => answer(CANCEL) }, 'Cancel'));
-  const show = (heading, text, rows, extra = '') =>
-    (render(title(heading), h('p', { className: 'muted' }, text, ' ',
+  const cancel = h('button', { type: 'button', onclick: () => answer(CANCEL) }, 'Cancel');
+  const device = h('button', { type: 'button', className: 'link end', title: 'Hand this request to the browser: a phone, security key or the computer\'s own passkeys',
+    onclick: () => answer({ fallback: true }) }, 'Use device or security key');
+  const show = (heading, text, rows, primary) =>
+    (render(...promptHead(heading), h('p', { className: 'muted' }, text, ' ',
       locked().length && h('button', { className: 'link', onclick: unlockView }, `${locked().length} locked`)),
-    h('div', { className: 'list' }, rows), extra, others, err), fitWindow());
+    rows.length && h('div', { className: 'list' }, rows), promptActions(primary, cancel, device), err), fitWindow());
 
   if (kind === 'get') {
     const allow = ids(o.allowCredentials);
     // a non-empty allow list stays a restriction even when all its entries are of an unknown type
     const rows = mine.filter((m) => !o.allowCredentials?.length || allow.has(m.id)).map(({ i, p }) =>
-      pkRow(p.userName || i.username || '(no username)', `${i.name}${multi ? ` · ${acct(i.a)?.label}` : ''}`,
-        action('Use', true, async () => {
+      choice(i, p.userName || i.username || '(no username)', `${i.name}${multi ? ` · ${acct(i.a)?.label}` : ''}`,
+        action('Sign in', true, async () => {
           const result = await bw.passkeyGet(p, o, origin);
           if (!await authorized(i.a)) return answer(CANCEL);
           await markUsed(i);
           answer({ result });
         })));
-    return show('Sign in with passkey', rows.length ? `Passkeys for ${rpId}:` : `No passkey for ${rpId} in Ward.`, rows);
+    return show(`Sign in to ${rpId}`, rows.length ? 'With a passkey from Ward:' : `Ward has no passkey for ${rpId}.`, rows);
   }
 
   const exclude = ids(o.excludeCredentials);
   // no auto-answer: the user may still want to add a security key next to it
-  if (mine.some((m) => exclude.has(m.id))) return show('Save passkey', 'This site\'s passkey is already in Ward.', []);
+  if (mine.some((m) => exclude.has(m.id))) return show(`Save a passkey for ${rpId}`, 'This site\'s passkey is already in Ward.', []);
   const save = async (a, item) => {
     if (!a || !await authorized(a)) return answer(CANCEL);
     const { passkey, result } = await bw.passkeyCreate(o, origin, rpId);
@@ -1284,12 +1292,11 @@ function passkeyView() {
   };
   // existing logins for the site that have no passkey yet
       const rows = vault.filter((i) => bw.matches(i, pageUrl, equiv.get(i.a)) && !i.passkeys).map((i) =>
-    pkRow(i.username || '(no username)', `${i.name}${multi ? ` · ${acct(i.a)?.label}` : ''}`,
+    choice(i, i.username || '(no username)', `${i.name}${multi ? ` · ${acct(i.a)?.label}` : ''}`,
       action('Save here', false, async () => save(acct(i.a), await loadItem(i)))));
-  const target = multi && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
-  const create = h('div', { className: 'inline' }, target,
-    action('Save as new login', true, () => save(target ? acct(target.value) : unlocked()[0])));
-  show('Save passkey', `Save a passkey for ${o.user.name || 'this account'} on ${rpId}${rows.length ? ', in a new login or an existing one:' : '?'}`, rows, create);
+  const target = multi && h('select', { title: 'Vault' }, unlocked().map((a) => h('option', { value: a.id }, a.label)));
+  const create = action('Save as new login', true, () => save(target ? acct(target.value) : unlocked()[0]));
+  show(`Save a passkey for ${rpId}`, `For ${o.user.name || 'this account'}${rows.length ? ', in a new login or one you have:' : '.'}`, rows, [create, target]);
 }
 
 // The "save this login?" bar. sv: { kind: 'add' | 'update', username, password, origin, a?, id? } from background.js.
@@ -1302,7 +1309,7 @@ function saveView() {
   const close = closeSave;
   const valid = () => sv && sv.expires === expires && Number.isFinite(expires) && expires > Date.now();
   saveTimer = setTimeout(() => sv?.expires === expires && close(), Math.max(0, expires - Date.now()));
-  const target = kind === 'add' && unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
+  const target = kind === 'add' && unlocked().length > 1 && h('select', { title: 'Vault' }, unlocked().map((a) => h('option', { value: a.id }, a.label)));
   const save = h('button', {
     className: 'primary',
     onclick: () => run(save, err, async () => {
@@ -1317,8 +1324,11 @@ function saveView() {
       close();
     }),
   }, kind === 'add' ? 'Save' : 'Update');
+  const host = new URL(origin).hostname;
+  const existing = kind === 'update' && vault.find((i) => i.a === sv.a && i.id === sv.id);
   const never = kind === 'add' && h('button', {
-    title: `Never offer to save logins for ${new URL(origin).hostname}`,
+    className: 'link end',
+    title: `Never offer to save logins for ${host}`,
     onclick: async () => {
       if (!valid()) return close();
       const { neverSave = [] } = await local.get('neverSave');
@@ -1326,11 +1336,13 @@ function saveView() {
       await local.set({ neverSave: [...new Set((Array.isArray(neverSave) ? neverSave : []).concat(hostname))] });
       close();
     },
-  }, 'Never');
+  }, 'Never for this site');
   render(
-    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')),
-    h('p', {}, kind === 'add' ? `Save the login${username ? ` for ${username}` : ''}?` : `Update the password for ${username || 'this login'}?`),
-    h('div', { className: 'inline' }, target, save, never, h('button', { onclick: close }, 'Not now')), err);
+    ...promptHead(kind === 'add' ? `Save this login for ${host}?` : `Update the password for ${host}?`),
+    h('div', { className: 'list' }, existing ? choice(existing, existing.name || host, username || existing.username || '(no username)')
+      : choice(null, host, username || '(no username)')),
+    promptActions(save, target, h('button', { onclick: close }, 'Not now'), never), err);
+  fitWindow();
 }
 
 // Ward: a card and/or address the user typed into a checkout or address form. Each is a checkbox; the security code
@@ -1348,7 +1360,7 @@ function formSaveView() {
   const [codeBox, codeRow] = card?.code ? check(false, 'Also save the security code', 'Most people leave it out; sites ask for it each time') : [];
   const who = identity && [identity.firstName, identity.lastName].filter(Boolean).join(' ');
   const [idBox, idRow] = identity ? check(true, `Address: ${[who, identity.address1, identity.city || identity.postalCode].filter(Boolean).join(', ')}`) : [];
-  const target = unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
+  const target = unlocked().length > 1 && h('select', { title: 'Vault' }, unlocked().map((a) => h('option', { value: a.id }, a.label)));
   const save = h('button', {
     className: 'primary',
     onclick: () => run(save, err, async () => {
@@ -1366,6 +1378,7 @@ function formSaveView() {
     }),
   }, 'Save');
   const never = h('button', {
+    className: 'link end',
     title: `Never offer to save anything for ${new URL(origin).hostname}`,
     onclick: async () => {
       if (!valid()) return closeSave();
@@ -1373,13 +1386,12 @@ function formSaveView() {
       await local.set({ neverSave: [...new Set((Array.isArray(neverSave) ? neverSave : []).concat(new URL(origin).hostname))] });
       closeSave();
     },
-  }, 'Never');
+  }, 'Never for this site');
   render(
-    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')),
-    h('p', {}, `Save from ${new URL(origin).hostname}?`),
+    ...promptHead(`Save from ${new URL(origin).hostname}?`),
     h('div', { className: 'checks' }, cardRow, codeRow, idRow),
-    target && field('Vault', target),
-    h('div', { className: 'inline' }, save, never, h('button', { onclick: closeSave }, 'Not now')), err);
+    promptActions(save, target, h('button', { onclick: closeSave }, 'Not now'), never), err);
+  fitWindow();
 }
 
 // Ward: "from page" on the Cards/Identities tab: read the card or address form on this page (values as they are,

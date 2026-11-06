@@ -99,3 +99,9 @@ button.touch { display: block; width: 100%; margin: 0 0 12px; }
 .checks label.check { white-space: normal; margin: 0; }
 main > label.check { margin: 0 0 8px; }
 main > select { margin: 0 0 10px; }
+
+/* windows opened for a page (passkey, save offers, Touch ID): the popup's parts, at the window's full width */
+body.window { width: auto; }
+.inline.wrap { flex-wrap: wrap; row-gap: 4px; }
+.item.choice .actions { flex: none; gap: 6px; }
+button.link.end { margin-left: auto; }

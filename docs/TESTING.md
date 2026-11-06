@@ -39,7 +39,8 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
    (maybe twice; on Windows, Windows Hello). Then lock and use **Unlock with Touch ID**.
    - If it fails, press **Copy report** and include it in an issue: it says whether the browser and authenticator
      support WebAuthn PRF for extensions.
-9. **Passkeys**: optional; sign in to a site with a passkey stored in your vault.
+9. **Passkeys**: optional; sign in to a site with a passkey stored in your vault. Ward's window says "Sign in to <site>"
+   and lists your passkeys for it; **Sign in** answers, **Use device or security key** hands the request to the browser.
 10. **Cards / Identities / Notes** (tabs under the toolbar):
     - Add a test card (e.g. `4111 1111 1111 1111`, any future expiry, `123`) and an identity; open a secure note.
     - On a real checkout page, open Ward (it opens on Cards when the page looks like checkout and has no logins),

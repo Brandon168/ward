@@ -38,7 +38,7 @@ before fixing. Status reflects the current `main`.
 | L2 | Low | Regex match type can hang the service worker with a catastrophic pattern | Open |
 | L3 | Low | A page could make Ward fetch `https://<any host or IP>/.well-known/webauthn` before any vault check | **Fixed**: vault check first; IP and dotless rpIds never fetched |
 | L4 | Low | Passkey windows can open without a user gesture; UV flag always set; re-prompt ignored for passkeys | Open |
-| L5 | Low | Save window doesn't name the site or target login | Open |
+| L5 | Low | Save window doesn't name the site or target login | **Fixed** (0.4.4): the title names the site; the row shows the login to save or update |
 | L6 | Low | Firefox fallback could answer a passkey to a navigated frame | Open (Firefox is not a target yet) |
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |

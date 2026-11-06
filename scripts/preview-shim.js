@@ -1,8 +1,11 @@
 // Preview only (scripts/preview.mjs): a fake extension environment with sample data, no real vault or network.
 // Runs inside a sandboxed HTML preview panel (no storage, clipboard or extension APIs), so those are faked.
 const key = btoa(String.fromCharCode(...new Uint8Array(64)));
+// WARD_VIEW (set by preview.mjs): which window to show, as background.js would open it.
+const view = window.WARD_VIEW || 'popup';
 const list = [
-  { id: 'gh', name: 'GitHub', username: 'brandon@example.com', password: 'pw1', uris: ['https://github.com'], totp: 'JBSWY3DPEHPK3PXP', a: 'v' },
+  { id: 'gh', name: 'GitHub', username: 'brandon@example.com', password: 'pw1', uris: ['https://github.com'], totp: 'JBSWY3DPEHPK3PXP', a: 'v',
+    passkeys: [{ rpId: 'github.com', credentialId: '0b6f7c1e-2f4a-4d6b-9c1e-1a2b3c4d5e6f', userName: 'brandon@example.com' }] },
   { id: 'gw', name: 'GitHub (work)', username: 'bre@company.com', password: 'pw2', uris: ['https://github.com'], totp: 'JBSWY3DPEHPK3PXQ', a: 'v' },
   { id: 'am', name: 'Amazon', username: 'ann@example.com', password: 'pw3', uris: ['https://amazon.com'], a: 'v' },
   { id: 've', name: 'Vercel', username: 'brandon@example.com', password: 'pw4', uris: ['https://vercel.com'], a: 'v' },
@@ -16,10 +19,22 @@ const area = (data) => ({
   get: async (k) => { const keys = k == null ? Object.keys(data) : Array.isArray(k) ? k : typeof k === 'string' ? [k] : Object.keys(k); return Object.fromEntries(keys.filter((x) => x in data).map((x) => [x, data[x]])); },
   set: async (o) => Object.assign(data, o), remove: async (k) => { for (const x of [].concat(k)) delete data[x]; }, clear: async () => { for (const x in data) delete data[x]; },
 });
+const later = Date.now() + 3600e3;
+const handoffs = {
+  'passkey': { 'pk:demo': { id: 'r1', kind: 'get', tabId: 1, origin: 'https://github.com', rpId: 'github.com', expires: later,
+    options: { challenge: 'Y2hhbGxlbmdl', rpId: 'github.com' } } },
+  'passkey-save': { 'pk:demo': { id: 'r1', kind: 'create', tabId: 1, origin: 'https://vercel.com', rpId: 'vercel.com', expires: later,
+    options: { challenge: 'Y2hhbGxlbmdl', rp: { id: 'vercel.com', name: 'Vercel' }, user: { id: 'dXNlcg', name: 'brandon@example.com' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }] } } },
+  'save': { 'save:demo': { kind: 'add', tabId: 1, origin: 'https://news.example', username: 'ann@example.com', password: 'pw7', expires: later } },
+  'save-update': { 'save:demo': { kind: 'update', tabId: 1, origin: 'https://amazon.com', a: 'v', id: 'am', username: 'ann@example.com', password: 'pw8', expires: later } },
+  'save-card': { 'save:demo': { kind: 'form', tabId: 1, origin: 'https://shop.example', expires: later,
+    card: { brand: 'Mastercard', number: '5555555555554444', expMonth: '7', expYear: '2030', code: '321', cardholderName: 'Ann Lee' } } },
+}[view] || {};
 window.chrome = {
   storage: { local: area({ accounts: [{ id: 'v', server: 'https://bw.example', email: 'me@example.com', label: 'Personal', lastSync: Date.now() }],
     used: { 'v:am': Date.now() - 1000, 'v:vi': Date.now() - 2000, 'v:ho': Date.now() - 3000 } }),
-    session: area({ 'v:key': key, 'v:list': JSON.stringify(list) }), onChanged: { addListener() {} } },
+    session: area({ 'v:key': key, 'v:list': JSON.stringify(list), ...handoffs }), onChanged: { addListener() {} } },
   tabs: { query: async () => [{ id: 1, url: 'https://github.com/login', windowId: 1 }], get: async () => ({ id: 1, url: 'https://github.com/login', windowId: 1 }),
     sendMessage: async () => null },
   runtime: { sendMessage: async () => null, getManifest: () => ({ version: 'preview' }) },

@@ -719,7 +719,7 @@ function makePopup(hash, initial = {}, options = {}) {
   const app = popupElement('main');
   const document = {
     activeElement: null,
-    body: { scrollHeight: 0 },
+    body: { scrollHeight: 0, classList: { add() {} } },
     documentElement: { dataset: {}, append(...children) { this.children ||= []; this.children.push(...children); } },
     createElement: (tag) => popupElement(tag),
     createElementNS: (_ns, tag) => popupElement(tag),
@@ -796,7 +796,7 @@ const findButton = (node, text) => {
   for (const child of node?.children || []) { const found = findButton(child, text); if (found) return found; }
   return null;
 };
-const useButton = findButton(passkeyPopup.app, 'Use');
+const useButton = findButton(passkeyPopup.app, 'Sign in');
 assert.ok(useButton?.onclick, 'passkey view renders the real Use handler');
 await useButton.onclick({ isTrusted: true });
 assert.equal(passkeyCalls, 1, 'Use invokes passkey signing');
@@ -1023,6 +1023,26 @@ for (const pw of ['wrong', 'right']) {
   assert.ok(titled(up.app, 'Removes this vault').length === 1 || textOf(up.app).includes('Log out'), 'Settings has Log out');
 }
 console.log('popup storage, passkey, account, save-window, and move checks ok');
+
+// Design system (docs/design/SYSTEM.md): the in-page UI copies the popup's colour tokens and avatar palette, since a
+// page's shadow root can't load popup.css. Both copies must match, in dark and light.
+{
+  const css = await readFile(new URL('./popup.css', import.meta.url), 'utf8');
+  const inpage = await readFile(new URL('./inpage.js', import.meta.url), 'utf8');
+  const popupJs = await readFile(new URL('./popup.js', import.meta.url), 'utf8');
+  const vars = (block) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*([^;]+);/g)].map(([, k, v]) => [k, v.trim()]));
+  const dark = vars(css.match(/:root \{([^}]*)\}/)[1]), light = { ...dark, ...vars(css.match(/:root\[data-theme="light"\] \{([^}]*)\}/)[1]) };
+  const theme = inpage.match(/const THEME = `([\s\S]*?)`;/)[1];
+  const pageDark = vars(theme.match(/\.box \{([^}]*)\}/)[1]), pageLight = { ...pageDark, ...vars(theme.match(/prefers-color-scheme: light\) \{ \.box \{([^}]*)\}/)[1]) };
+  assert.ok(Object.keys(pageDark).length >= 7, 'inpage.js THEME tokens found');
+  for (const k of Object.keys(pageDark)) {
+    assert.equal(pageDark[k], dark[k], `inpage.js --${k} (dark) matches popup.css`);
+    assert.equal(pageLight[k], light[k], `inpage.js --${k} (light) matches popup.css`);
+  }
+  const palette = (src) => src.match(/const PALETTE = (\[[^\]]*\])/)[1].replace(/'/g, '"');
+  assert.deepEqual(JSON.parse(palette(inpage)), JSON.parse(palette(popupJs)), 'inpage.js avatar palette matches popup.js');
+}
+console.log('design tokens in step ok');
 // page.js: the credential it hands the page takes the toJSON that @github/webauthn-json assigns (in strict mode).
 {
   const listeners = [];

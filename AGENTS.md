@@ -27,10 +27,22 @@ Markdown or docs/.
 
 ## UI work
 
-- `node scripts/preview.mjs` builds `preview/ward-popup.html` (git-ignored): the real popup with sample data
-  (`scripts/preview-shim.js`) in one self-contained file, and `preview/ward-inpage.html`: a sample sign-in page running
-  the real inpage.js (field menu, save bar). The in-page UI reuses the popup's colours and avatars; keep them in step.
-  Rebuild it after every UI change. It must keep working in a sandboxed HTML preview panel: inline scripts and blob:
-  modules only, no network, storage, clipboard or Web Locks.
-- docs/design/ holds the original UI mockups (option E was chosen) and 0.4.0 screenshots.
+**The UI must stay consistent across every surface**: the toolbar popup, the windows Ward opens for a page (passkey,
+save offers, Touch ID) and the in-page menu and save bar. `docs/design/SYSTEM.md` is the design system (tokens,
+components, patterns, copy, the checklist) and is binding for every UI change:
+
+- Read it before touching UI. Use its tokens and components; no hard-coded colours, one-off styles or new button
+  kinds. If something is missing, extend SYSTEM.md in the same change instead of improvising.
+- A new view or window ships with a preview entry (`VIEWS` in `scripts/preview.mjs`, sample hand-off in
+  `scripts/preview-shim.js`). Check it in light and dark next to the popup before calling the work done.
+- `node test.mjs` checks that inpage.js's copied tokens and avatar palette match popup.css/popup.js.
+
+Preview:
+
+- `node scripts/preview.mjs` builds, in `preview/` (git-ignored): `ward-popup.html` (the real popup with sample data
+  from `scripts/preview-shim.js`), one file per extension window (`ward-passkey*.html`, `ward-save*.html`) and
+  `ward-inpage.html` (a sample sign-in page running the real inpage.js: field menu, save bar). Rebuild after every UI
+  change. It must keep working in a sandboxed HTML preview panel: inline scripts and blob: modules only, no network,
+  storage, clipboard or Web Locks.
+- docs/design/ holds SYSTEM.md, the original UI mockups (option E was chosen) and 0.4.0 screenshots.
 - The popup refuses to run framed; only the generated preview drops that check. Never weaken it in popup.js.
