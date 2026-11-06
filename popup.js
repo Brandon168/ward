@@ -139,7 +139,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -379,6 +379,7 @@ function loginView() {
           const a = old || { id: newId(), server: srv, email: mail, label: label.value.trim() || mail, ...fields };
           await (old ? update(old, fields) : updateAccounts((list) => [...list, a]));
           await setKey(a, r.userKey);
+          await local.set({ passwordAt: (st.passwordAt = Date.now()) });
           await syncAccount(a);
           merge();
           vaultView();
@@ -412,7 +413,7 @@ function unlockView() {
         const opened = await Promise.all(todo.map((a) =>
           bw.unlock(pw.value, a.email, a.kdf, a.protectedKey).then((k) => setKey(a, k)).then(() => true, (e) => e)));
         if (!opened.includes(true)) throw new Error([...new Set(opened.map((e) => e?.message || String(e)))].join('\n'));
-        if (st.touchUnlock) await local.set({ touchUnlock: (st.touchUnlock = { ...st.touchUnlock, passwordAt: Date.now() }) });
+        await local.set({ passwordAt: (st.passwordAt = Date.now()) }); // Touch ID's every-14-days password check
         const problems = await loadVaults();
         vaultView();
         if (problems) status(problems);
@@ -892,7 +893,7 @@ async function touchView(kind) {
       }
       if (!st.touchUnlock) throw new Error('Touch ID is not set up');
       let opened = 0;
-      for (const [id, key] of await touch.unlockKeys(st.touchUnlock, say)) {
+      for (const [id, key] of await touch.unlockKeys(st.touchUnlock, say, (await local.get('passwordAt')).passwordAt)) {
         const a = acct(id);
         if (!a || keys[id]) continue;
         if (!(await keyFits(a, key))) { say(`the key for ${a.label} no longer fits (master key rotated?)`); continue; }

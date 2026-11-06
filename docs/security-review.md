@@ -42,3 +42,25 @@ before fixing. Status reflects the current `main`.
 | L6 | Low | Firefox fallback could answer a passkey to a navigated frame | Open (Firefox is not a target yet) |
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
+
+## Second review: Ward's own changes (2026-11-06)
+
+A second independent review covered everything changed since the seed (`1d77b9e..HEAD`). It found no deadlocks,
+and no way for background sync or Touch ID to reopen a locked or removed vault.
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| W-H1 | High | `hasInvocation` hung on a crafted varint (sign wrap, so the loop ran from about -2^31), freezing the service worker, auto-lock included | **Fixed**: arithmetic varint, at most 5 bytes, every frame must fit; regression tests |
+| W-M1 | Medium | Locking while a live connection was still fetching its token leaked a socket | **Fixed**: `closed` is checked after the await |
+| W-M2 | Medium | A slow background sync could overwrite a newer list stored meanwhile | **Fixed**: skipped if the session list changed during the download |
+| W-M3 | Medium | Every background sync rewrote storage even when nothing changed (cache and badge churn) | **Fixed**: an unchanged list only records a session-storage timestamp |
+| W-M4 | Medium | The popup and the service worker can each refresh the same token | **Mitigated**: the worker refreshes 5 min early under a per-account lock. The popup still uses `bw.api`; Vaultwarden reuses refresh tokens, so impact is low. Open |
+| W-M5 | Medium | After 400 ms the page could move the menu under the cursor | **Fixed**: a MutationObserver closes the menu on any attribute change, and the click re-checks the menu's position |
+| W-L1 | Low | Early or unconfirmed clicks closed the menu | **Fixed**: they are ignored instead |
+| W-L2/L3 | Low | Wrapped labels didn't count as a press on the field; arrow keys let the page pop the menu | **Fixed**: label ancestors count; only Tab counts as keyboard focus |
+| W-L4 | Low | The save oracle stayed open while the user typed; incidental buttons dropped the real submit | **Fixed**: only passwords typed via trusted input are offered; identical values are deduplicated instead of rate-limited |
+| W-L5/L6 | Low | Re-enrolling Touch ID reset the 14-day password timer; a stale record could be written back | **Fixed**: one `passwordAt` timestamp, set only by login or password unlock; the Touch ID record is never rewritten |
+| W-L7 | Low | Related-origin fetches could still target LAN names | **Fixed**: IPs, single-label and local suffixes are refused |
+| W-L8/L9 | Low | No reconnect backoff; concurrent hub refreshes could race | **Fixed**: 1→30 min backoff, an expired session stops reconnecting until the next unlock; refreshes are serialized |
+| W-L10 | Low | The http gate drops regex URIs and single-label intranet hosts on http pages | Accepted (save those with an explicit `http://`) |
+| W-L11 | Info | A synced passkey provider syncs the PRF secret too | Documented in `touch.js` |

@@ -8,7 +8,9 @@
 //
 // Stored (chrome.storage.local `touchUnlock`): credential ID, salt, rpId and the wrapped keys. Never the PRF output
 // or the wrapping key. Without the authenticator and a successful verification the wrapped keys are useless, which
-// is what makes this safer than "Never lock" (that stores the raw key).
+// is what makes this safer than "Never lock" (that stores the raw key). Note: if the browser stores the credential
+// in a synced passkey provider (iCloud Keychain, Google Password Manager), its PRF secret syncs with it, so the
+// guarantee is "your passkey provider plus user verification", not "this device only".
 const te = new TextEncoder();
 const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -75,13 +77,14 @@ export async function enroll(rpId, keys, log = () => {}) {
   const wrapped = {};
   for (const [id, userKey] of keys) wrapped[id] = await wrap(key, id, userKey);
   log(`wrapped ${keys.length} vault key(s)`);
-  return { v: 1, rpId, credId, salt, wrapped, createdAt: Date.now(), passwordAt: Date.now(),
-    attachment: cred.authenticatorAttachment || null };
+  return { v: 1, rpId, credId, salt, wrapped, createdAt: Date.now(), attachment: cred.authenticatorAttachment || null };
 }
 
 // Returns [[accountId, userKey]] for the wrapped vaults (one verification for all of them).
-export async function unlockKeys(record, log = () => {}) {
-  if (Date.now() - (record.passwordAt || 0) > PASSWORD_EVERY_DAYS * 864e5)
+// passwordAt: when the master password was last typed (login or password unlock), kept outside the record so
+// re-enrolling can't reset it.
+export async function unlockKeys(record, log = () => {}, passwordAt = 0) {
+  if (Date.now() - (passwordAt || 0) > PASSWORD_EVERY_DAYS * 864e5)
     throw Object.assign(new Error(`Enter your master password: it is needed every ${PASSWORD_EVERY_DAYS} days.`), { needPassword: true });
   log('verifying (Touch ID prompt)');
   const key = await wrappingKey(await assertion(record.rpId, record.credId, record.salt), record.credId);

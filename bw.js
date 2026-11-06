@@ -380,6 +380,7 @@ export function equivalents(groups) {
 // hosts (IP literals, localhost, .local/.lan/.home.arpa/.internal). Otherwise an on-path attacker could downgrade
 // or inject http://anything.bank.com and have the bank's https login offered and filled there.
 const LOCAL_HOST = /^(localhost|\[[0-9a-f:.]+\]|\d{1,3}(\.\d{1,3}){3})$|\.(local|lan|home\.arpa|internal|localhost)$/i;
+export const isLocalHost = (host) => LOCAL_HOST.test(host) || !String(host).includes('.');
 export function httpAllowed(u) {
   if (/^http:\/\//i.test(u)) return true;
   if (/^[a-z][\w+.-]*:\/\//i.test(u)) return false; // https:// or any other explicit scheme

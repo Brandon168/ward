@@ -372,7 +372,7 @@ async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentI
 
 // e.g. www.facebook.com signing in with rpId accounts.meta.com, allowed by https://accounts.meta.com/.well-known/webauthn
 async function relatedOrigins(rpId, origin) {
-  if (/^[\d.]+$|[:[\]]/.test(rpId) || rpId === 'localhost' || !rpId.includes('.')) return false; // Ward: domains only, never IPs
+  if (/^[\d.]+$|[:[\]]/.test(rpId) || bw.isLocalHost(rpId)) return false; // Ward: public domains only, never IPs or LAN names
   try {
     const r = await fetch(`https://${rpId}/.well-known/webauthn`, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error' });
     return r.ok && bw.relatedOrigin(await r.json(), origin);
