@@ -16,6 +16,7 @@
   Settings > Account / Copying / Appearance (0.4.0)
 - One-time code button shows only a countdown pie (red for the last 5 s), no digits (0.4.1)
 - The in-page login menu and save bar match the popup: system font, letter avatars, name over username (0.4.2)
+- Fix: no more console error on every click on pages without a password field (0.4.3)
 
 ## Next
 1. Touch ID: act on the Vivaldi test. If PRF works for extension pages, polish (prompt automatically when the
