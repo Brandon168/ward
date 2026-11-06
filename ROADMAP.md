@@ -9,6 +9,7 @@
 - Auto-lock on screen lock/sleep and after idle
 - Touch ID unlock (experimental, WebAuthn PRF), with in-window diagnostics
 - Background sync every 5 min and live sync over Vaultwarden's notification hub
+- Cards, identities and secure notes: browse, edit, copy, fill checkout and address forms (0.2.0)
 
 ## Next
 1. Touch ID: act on the Vivaldi test. If PRF works for extension pages, polish (prompt automatically when the
@@ -20,7 +21,8 @@
    conflicts).
 4. Security review leftovers: M4 (server-controlled equivalent domains and match types), L2, L4, L5, M6
    (replace Never lock with Touch ID).
-5. Cards, identities and secure notes.
+5. Cards and identities: in-page menu on card/address fields; custom fields; card fill in more payment
+   providers' frames as they turn up.
 6. Browser behaviour test in CI: headless Chromium with the extension, a local https test site and an
    egress-logging proxy that fails on any request to an unexpected host.
 7. Bot access (separate project): `vw://vault/item/field` references resolved by a self-hosted service from a

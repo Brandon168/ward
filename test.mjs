@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as bw from './bw.js';
 import { mutateAccounts, withStateLock, AUTO_LOCK_CHOICES, autoLockMinutes, shouldAutoLock, lockEverything } from './coord.js';
-import { fillTab } from './autofill.js';
+import { fillTab, formFrameAllowed } from './autofill.js';
 import * as touch from './touch.js';
 import { storeSync, hasInvocation, SIGNALR_PING, syncOpenVault } from './sync.js';
 
@@ -243,6 +243,77 @@ console.log('ward hardening checks ok');
   delete globalThis.navigator.credentials;
 }
 console.log('touch id checks ok');
+
+{ // Cards and identities: field recognition (formfill.js), values, frames, brands
+  const ctx = {}; ctx.globalThis = ctx;
+  vm.runInNewContext(await readFile('./formfill.js', 'utf8'), ctx);
+  const C = (h) => ctx.wardClassify(h, 'card'), I = (h) => ctx.wardClassify(h, 'identity');
+  // Stripe Elements and other autocomplete-tagged fields
+  assert.equal(C({ ac: 'cc-number', text: 'cardnumber' }), 'cc-number');
+  assert.equal(C({ ac: 'cc-exp', text: 'exp-date' }), 'cc-exp');
+  assert.equal(C({ ac: 'cc-csc', text: 'cvc' }), 'cc-csc');
+  assert.equal(C({ ac: 'billing cc-name' }), 'cc-name');
+  assert.equal(I({ ac: 'shipping address-line1' }), 'address-line1');
+  assert.equal(I({ ac: 'section-ship shipping postal-code' }), 'postal-code');
+  // heuristics on name/id/label
+  assert.equal(C({ text: 'card-number Card number' }), 'cc-number');
+  assert.equal(C({ text: 'ccExpMonth Expiration month' }), 'cc-exp-month');
+  assert.equal(C({ text: 'expYear Expiry year' }), 'cc-exp-year');
+  assert.equal(C({ text: 'expiry MM / YY' }), 'cc-exp');
+  assert.equal(C({ text: 'cvv Security code' }), 'cc-csc');
+  assert.equal(C({ text: 'nameOnCard Name on card' }), 'cc-name');
+  assert.equal(C({ text: 'creditCardName' }), 'cc-name');
+  assert.equal(I({ text: 'firstName First name' }), 'given-name');
+  assert.equal(I({ text: 'last_name' }), 'family-name');
+  assert.equal(I({ text: 'zip ZIP code' }), 'postal-code');
+  assert.equal(I({ text: 'address2 Apartment, suite, etc.' }), 'address-line2');
+  assert.equal(I({ text: 'address1 Street address' }), 'address-line1');
+  assert.equal(I({ text: 'city' }), 'address-level2');
+  assert.equal(I({ text: 'state State' }), 'address-level1');
+  assert.equal(I({ text: 'country Country/Region' }), 'country');
+  assert.equal(I({ type: 'email', text: 'contact' }), 'email');
+  assert.equal(I({ type: 'tel', text: 'phone' }), 'tel');
+  assert.equal(I({ text: 'company Company name' }), 'organization');
+  assert.equal(I({ text: 'fullName Full name' }), 'name');
+  // never cross-fill: login fields and the other kind
+  assert.equal(I({ ac: 'username', text: 'username' }), null, 'login fields are left alone');
+  assert.equal(I({ ac: 'current-password' }), null);
+  assert.equal(C({ type: 'email', text: 'email' }), null, 'a card never fills the email');
+  assert.equal(I({ ac: 'cc-number' }), null, 'an identity never fills a card field');
+  assert.equal(C({ text: 'search' }), null);
+  // values
+  const card = { cardholderName: 'Ann Lee', number: '4111 1111 1111 1111', expMonth: '3', expYear: '2029', code: '123', brand: 'Visa' };
+  const V = (k, el) => ctx.wardValueFor(k, card, el);
+  assert.equal(V('cc-number'), '4111111111111111');
+  assert.equal(V('cc-exp', { placeholder: 'MM / YY' }), '03/29');
+  assert.equal(V('cc-exp', { placeholder: 'MM/YYYY' }), '03/2029');
+  assert.equal(V('cc-exp', { maxLength: 4 }), '0329');
+  assert.deepEqual([...V('cc-exp-month')].slice(0, 4), ['03', '3', 'march', 'mar']);
+  assert.equal(V('cc-exp-year', { maxLength: 2 })[0], '29');
+  assert.equal(V('cc-exp-year', {})[0], '2029');
+  assert.equal(ctx.wardValueFor('name', { firstName: 'Ann', middleName: 'B', lastName: 'Lee' }), 'Ann B Lee');
+  assert.equal(ctx.wardValueFor('street-address', { address1: '1 Main St', address2: 'Apt 2' }, { tagName: 'INPUT' }), '1 Main St, Apt 2');
+  // frames
+  const T = 'https://shop.example.com/checkout';
+  assert.ok(formFrameAllowed('card', T, 'https://shop.example.com/pay'));
+  assert.ok(formFrameAllowed('card', T, 'https://cdn.example.com/frame'), 'same site');
+  assert.ok(formFrameAllowed('card', T, 'https://js.stripe.com/v3/elements-inner-card.html'), 'payment provider');
+  assert.ok(formFrameAllowed('card', T, 'https://assets.braintreegateway.com/hosted-fields'));
+  assert.ok(!formFrameAllowed('identity', T, 'https://js.stripe.com/v3/'), 'identities stay on the site');
+  assert.ok(!formFrameAllowed('card', T, 'https://ads.tracker.net/frame'), 'not any third party');
+  assert.ok(!formFrameAllowed('card', T, 'https://evilstripe.com/x'), 'suffix match is on a label boundary');
+  assert.ok(!formFrameAllowed('card', 'http://shop.example.com/', 'http://shop.example.com/'), 'https only');
+  assert.ok(!formFrameAllowed('card', T, 'http://js.stripe.com/'), 'https frames only');
+  assert.equal(bw.cardBrand('4111111111111111'), 'Visa');
+  assert.equal(bw.cardBrand('5555 5555 5555 4444'), 'Mastercard');
+  assert.equal(bw.cardBrand('2221000000000009'), 'Mastercard');
+  assert.equal(bw.cardBrand('378282246310005'), 'Amex');
+  assert.equal(bw.cardBrand('6011111111111117'), 'Discover');
+  assert.equal(bw.cardBrand(''), '');
+  // cards and identities never match a site (no autofill badge, menu or shortcut)
+  assert.ok(!bw.matches({ type: 3, uris: [] }, 'https://shop.example.com/'));
+}
+console.log('cards and identities: recognition, values, frames ok');
 
 // Passkeys: a credential made by passkeyCreate signs assertions its public key verifies
 const fromB64u = (s) => Buffer.from(s, 'base64url');
@@ -569,7 +640,7 @@ function makePopup(hash, initial = {}, options = {}) {
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
-    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch, storeSync,
+    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch, storeSync, fillFormTab: async () => 0,
     navigator: { clipboard: { writeText: async () => {} } }, localStorage: {},
     crypto: globalThis.crypto || nodeCrypto.webcrypto, TextDecoder, URL, Intl, structuredClone,
     console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
@@ -944,6 +1015,36 @@ console.log('token refresh ok');
   ws.close();
 }
 console.log('live notifications + background sync ok');
+
+{ // Ward: secure notes, cards and identities round-trip through Vaultwarden
+  const note = await bw.saveCipher(s, r.userKey, null, { type: 2, name: 'Wi-Fi', notes: 'ssid: home\npass: hunter2' });
+  const card = await bw.saveCipher(s, r.userKey, null, { type: 3, name: 'Visa', notes: '',
+    card: { cardholderName: 'Ann Lee', number: '4111111111111111', expMonth: '3', expYear: '2029', code: '123' } });
+  const ident = await bw.saveCipher(s, r.userKey, null, { type: 4, name: 'Me', notes: '',
+    identity: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', address1: '1 Main St', city: 'Springfield', postalCode: '12345', country: 'US' } });
+  let all = await bw.decryptVault(await bw.api(s, '/sync'), r.userKey);
+  const byId = (id) => all.find((i) => i.id === id);
+  assert.equal(byId(note.id).type, 2);
+  assert.equal(byId(note.id).notes, 'ssid: home\npass: hunter2');
+  assert.deepEqual(byId(card.id).card, { cardholderName: 'Ann Lee', brand: 'Visa', number: '4111111111111111', expMonth: '3', expYear: '2029', code: '123' }, 'brand detected on save');
+  assert.equal(byId(ident.id).identity.email, 'ann@example.com');
+  assert.equal(byId(ident.id).identity.ssn, undefined, 'empty fields are left out');
+  assert.deepEqual(byId(card.id).uris, [], 'non-logins never match a site');
+  // edit keeps fields Ward doesn't show (a custom field added by another client)
+  const rawCard = byId(card.id).raw;
+  await bw.api(s, `/ciphers/${card.id}`, 'PUT', { ...rawCard, encryptedFor: me, attachments: undefined,
+    fields: [{ type: 0, name: await bw.encrypt('PIN', r.userKey), value: await bw.encrypt('9999', r.userKey) }] });
+  all = await bw.decryptVault(await bw.api(s, '/sync'), r.userKey);
+  await bw.saveCipher(s, r.userKey, byId(card.id), { type: 3, name: 'Visa', notes: 'new', card: { ...byId(card.id).card, expYear: '2031' } });
+  const synced2 = await bw.api(s, '/sync');
+  all = await bw.decryptVault(synced2, r.userKey);
+  assert.equal(byId(card.id).card.expYear, '2031');
+  assert.equal(byId(card.id).notes, 'new');
+  assert.equal(synced2.ciphers.find((c) => c.id === card.id).fields.length, 1, 'custom field kept on a card edit');
+  assert.equal(all.filter((i) => (i.type || 1) === 1).length >= 1, true, 'logins are still there');
+  for (const x of [note, card, ident]) await bw.deleteCipher(s, x.id);
+}
+console.log('secure notes, cards, identities round trip ok');
 
 // Argon2id account
 const email2 = `argon-${run}@example.com`;

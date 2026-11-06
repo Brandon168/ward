@@ -1,5 +1,5 @@
 import * as bw from './bw.js';
-import { fillTab } from './autofill.js';
+import { fillTab, fillFormTab } from './autofill.js';
 import * as touch from './touch.js';
 import { storeSync } from './sync.js';
 import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
@@ -15,6 +15,13 @@ const collator = new Intl.Collator();
 // `${id}:profile`, `${id}:eq` (equivalent domain groups), `${id}:c:${cipherId}` (raw).
 // Per account in session storage: `${id}:key` and `${id}:list` (decrypted list, so an open is a read + JSON.parse).
 let st, accounts = [], keys = Object.create(null), lists = Object.create(null), vault = [], equiv = new Map(), tab, host, pageUrl, query = '', wide = false;
+// Ward: which item type the vault view shows. Types as in Bitwarden: 1 login, 2 secure note, 3 card, 4 identity.
+let kind = 1, kindPicked = false;
+const typeOf = (i) => i?.type || 1;
+const KINDS = [[1, 'Logins', 'login'], [3, 'Cards', 'card'], [4, 'Identities', 'identity'], [2, 'Notes', 'note']];
+const kindName = (t) => KINDS.find(([k]) => k === t)?.[2] || 'item';
+// Reprompt-protected items ask for the master password before anything sensitive is shown or used.
+const guarded = (i, fn) => (i.reprompt ? repromptView(i, fn) : fn());
 // Opened by background.js for a page: #pk=<key> a passkey request or #save=<key>
 // an extension-owned save confirmation window. pk / sv are hand-offs from session storage.
 const [mode, modeKey] = location.hash.slice(1).split('=');
@@ -638,6 +645,7 @@ async function fill(item, confirmed) {
   const key = keys[item.a];
   if (!key) return status('Vault locked; unlock it before filling');
   if (item.reprompt && !confirmed) return repromptView(item, () => fill(item, true));
+  if (typeOf(item) === 3 || typeOf(item) === 4) return fillForm(item, key);
   let code = null;
   if (item.totp) code = (await bw.totp(item.totp).catch(() => null))?.code;
   const guard = async () => {
@@ -649,6 +657,20 @@ async function fill(item, confirmed) {
   if (!await guard()) return status('Vault locked before filling finished');
   await markUsed(item); // before the clipboard, which can throw and leave the fill unrecorded
   if (code) await navigator.clipboard.writeText(code);
+  window.close();
+}
+
+// Ward: a card or identity into the page's checkout/address form (see autofill.js fillFormTab and formfill.js).
+async function fillForm(item, key) {
+  const guard = async () => {
+    const current = await session.get(`${item.a}:key`);
+    return keys[item.a] === key && current[`${item.a}:key`] === bw.b64(key);
+  };
+  let n;
+  try { n = await fillFormTab(tab.id, item, guard); } catch (e) { return status(e.message); }
+  if (!n) return status(`No ${typeOf(item) === 3 ? 'card' : 'address or contact'} fields found on this page`);
+  if (!await guard()) return status('Vault locked before filling finished');
+  await markUsed(item);
   window.close();
 }
 
@@ -674,10 +696,33 @@ function vaultView() {
     oninput: () => ((query = q.value), draw()),
     onkeydown: (e) => e.key === 'Enter' && top && fill(top),
   });
+  const formPage = /^https:\/\//i.test(pageUrl || ''); // cards and identities fill only on https pages
+  const kinds = h('nav', { className: 'kinds' });
+  const drawKinds = () => kinds.replaceChildren(...KINDS.map(([t, label]) => {
+    const n = t === 1 ? 0 : vault.filter((i) => typeOf(i) === t).length;
+    return h('button', { className: t === kind ? 'on' : '', onclick: () => ((kind = t), (kindPicked = true), (wide = false), draw(), q.focus()) }, n ? `${label} ${n}` : label);
+  }));
   const context = h('p', { className: 'context' });
   const list = h('div', { className: 'list' });
   const quiet = (text, title, onclick) => h('button', { className: 'quiet', title, onclick }, text);
-  const row = (i) => h('div', { className: 'row' },
+  const copyFull = (i, pick, what) => (e) => guarded(i, () => loadItem(i).then((full) => copy(e.target, pick(full))).then(() => status(`${what} copied`)).catch((x) => status(x.message)));
+  const exp = (c) => (c.expMonth || c.expYear ? `${String(c.expMonth || '?').padStart(2, '0')}/${String(c.expYear || '??').slice(-2)}` : '');
+  const fullName = (d) => [d.firstName, d.middleName, d.lastName].filter(Boolean).join(' ');
+  const otherRow = (i) => {
+    const t = typeOf(i), c = i.card || {}, d = i.identity || {};
+    const fillBtn = formPage && (t === 3 || t === 4) && h('button', { className: i === top ? 'primary' : '', title: i === top ? 'Fill this page (Enter)' : 'Fill this page', onclick: () => fill(i) }, 'Fill');
+    const info = t === 3 ? [h('b', {}, `${c.brand || 'Card'} •••• ${(c.number || '').replace(/\D/g, '').slice(-4) || '????'}`), h('small', {}, [c.cardholderName, exp(c)].filter(Boolean).join(' · '))]
+      : t === 4 ? [h('b', {}, fullName(d) || i.name || '(no name)'), h('small', {}, [d.email, d.phone, d.city].filter(Boolean).join(' · '))]
+      : [h('b', {}, 'Secure note')];
+    const copied = (what) => () => status(`${what} copied`);
+    const acts = t === 3 ? [c.number && quiet('number', 'Copy card number', (e) => guarded(i, () => copy(e.target, c.number.replace(/\s+/g, '')).then(copied('Card number')))),
+      c.code && quiet('code', 'Copy security code', (e) => guarded(i, () => copy(e.target, c.code).then(copied('Security code'))))]
+      : t === 4 ? [d.email && quiet('email', 'Copy email', (e) => copy(e.target, d.email))]
+      : [i.note && quiet('copy', 'Copy the note', copyFull(i, (f) => f.notes || '', 'Note'))];
+    return h('div', { className: 'row' }, h('div', { className: 'info' }, ...info),
+      h('div', { className: 'actions' }, fillBtn, ...acts, quiet(t === 2 ? 'open' : 'edit', t === 2 ? 'Open' : 'Edit', () => openEdit(i).catch((e) => status(e.message)))));
+  };
+  const row = (i) => typeOf(i) !== 1 ? otherRow(i) : h('div', { className: 'row' },
     h('div', { className: 'info' },
       h('b', { title: i.username }, i.username || '(no username)'),
       (i.totp || i.passkeys || i.note) && h('small', {}, i.totp && totpButton(i), i.passkeys && h('span', {}, 'passkey'),
@@ -689,20 +734,39 @@ function vaultView() {
         (e) => (i.reprompt ? repromptView(i, () => copy(e.target, i.password).then(() => status('Password copied'))) : copy(e.target, i.password))),
       quiet('edit', 'Edit', () => openEdit(i).catch((e) => status(e.message)))));
   const draw = () => {
+    drawKinds();
+    if (kind !== 1) return drawOther();
     const s = q.value.trim().toLowerCase();
     here = pageUrl ? bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used) : [];
     const scoped = here.length > 0 && !wide; // a site with logins: search those first, the whole vault on request
     q.placeholder = scoped ? `Search logins for ${host}` : 'Search all logins';
+    const logins = vault.filter((i) => typeOf(i) === 1);
     const items = s
-      ? (scoped ? here : vault).filter((i) => `${i.name} ${i.username} ${i.uris.join(' ')}`.toLowerCase().includes(s))
-      : host ? here : vault;
+      ? (scoped ? here : logins).filter((i) => `${i.name} ${i.username} ${i.uris.join(' ')}`.toLowerCase().includes(s))
+      : host ? here : logins;
     top = here.includes(items[0]) ? items[0] : null;
-    const shown = items.slice(0, 50);
+    renderGroups(items.slice(0, 50));
     const n = `${items.length} login${items.length === 1 ? '' : 's'}`;
     context.replaceChildren(s ? `${items.length ? n : 'No logins'}${scoped ? ` for ${host}` : ''} matching “${q.value.trim()}”${items.length > 50 ? ', first 50 shown' : ''}`
       : host ? (items.length ? `${n} for ${host}` : `No logins for ${host}. Type to search.`)
       : `${n}${items.length > 50 ? ', first 50 shown' : ''}`,
     s && scoped ? quiet('search whole vault', 'Search all logins, not just this site\'s', () => ((wide = true), draw(), q.focus())) : '');
+  };
+  // Ward: cards, identities and notes. No site matching; search covers their visible fields.
+  const searchText = (i) => [i.name, ...Object.entries(i.card || {}).filter(([k]) => k !== 'code' && k !== 'number').map(([, v]) => v),
+    (i.card?.number || '').slice(-4), ...Object.entries(i.identity || {}).filter(([k]) => !/ssn|passport|license/i.test(k)).map(([, v]) => v)].join(' ').toLowerCase();
+  const drawOther = () => {
+    const s = q.value.trim().toLowerCase(), label = KINDS.find(([t]) => t === kind)[1].toLowerCase();
+    q.placeholder = `Search ${label}`;
+    const items = vault.filter((i) => typeOf(i) === kind && (!s || searchText(i).includes(s)));
+    here = [];
+    top = formPage && (kind === 3 || kind === 4) ? items[0] || null : null;
+    context.replaceChildren(items.length ? `${items.length} ${items.length === 1 ? kindName(kind) : label}${s ? ` matching “${q.value.trim()}”` : ''}${items.length > 50 ? ', first 50 shown' : ''}`
+      : s ? `No ${label} matching “${q.value.trim()}”` : `No ${label} yet.`,
+    (kind === 3 || kind === 4) && !formPage && items.length ? ' Fill works on https pages.' : '');
+    renderGroups(items.slice(0, 50));
+  };
+  const renderGroups = (shown) => {
     const mixed = new Set(shown.map((i) => i.a)).size > 1; // vault names only when they tell rows apart
     const out = [];
     let group;
@@ -748,8 +812,8 @@ function vaultView() {
   theme.className = 'quiet';
   app.replaceChildren(
     h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward'),
-      h('nav', {}, quiet('new', 'Add login', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
-    h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
+      h('nav', {}, quiet('new', 'Add an item of the type shown', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
+    kinds, h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
     h('footer', {},
       h('span', { className: 'locks' },
         h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
@@ -758,6 +822,10 @@ function vaultView() {
         stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`),
         h('button', { className: 'link', title: 'Touch ID unlock (experimental)', onclick: touchSettingsView }, 'Touch ID'),
         h('button', { className: 'link', onclick: accountsView }, multi ? `Vaults (${accounts.length})` : 'Vaults'))));
+  // A checkout-looking page with no logins opens on Cards.
+  if (!kindPicked && kind === 1 && formPage && /checkout|payment|billing|\/pay\b|\/cart|\/order/i.test(new URL(pageUrl).pathname)
+    && !bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used).length && vault.some((i) => typeOf(i) === 3)) kind = 3;
+  kindPicked = true;
   draw();
   q.focus();
 }
@@ -769,6 +837,8 @@ const genPassword = () => {
 
 function editView(item) {
   if (mode === 'save') return closeSave();
+  const t = item ? typeOf(item) : kind;
+  if (t !== 1) return otherEditView(item, t);
   const name = h('input', { value: item ? item.name : host || '', required: true });
   const user = h('input', { value: item?.username || '' });
   const hidden = item?.viewPassword === false; // hidden by an organization policy: left empty, the saved one is kept
@@ -809,6 +879,83 @@ function editView(item) {
     h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
   app.replaceChildren(title(item ? 'Edit login' : 'Add login'), item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a)), form);
   name.focus();
+}
+
+// Ward: add/edit a secure note (2), card (3) or identity (4). item: the full decrypted item (openEdit) or null.
+function otherEditView(item, t) {
+  const c = item?.card || {}, d = item?.identity || {};
+  const input = (value, props = {}) => h('input', { value: value || '', ...props });
+  const secret = (value, props = {}) => {
+    const el = input(value, { type: 'password', autocomplete: 'off', ...props });
+    return [el, h('div', { className: 'inline' }, el, h('button', { type: 'button', onclick: () => (el.type = el.type === 'password' ? 'text' : 'password') }, 'Show'))];
+  };
+  const name = input(item?.name, { required: t === 2 });
+  const notes = h('textarea', { rows: t === 2 ? 10 : 3, value: item?.notes || '' });
+  const pair = (...kids) => h('div', { className: 'pair' }, ...kids);
+  let fields = [], read;
+  if (t === 3) {
+    const holder = input(c.cardholderName, { autocomplete: 'off' });
+    const [num, numBox] = secret(c.number, { inputMode: 'numeric', placeholder: '1234 5678 9012 3456' });
+    const brand = h('select', {}, ['', 'Visa', 'Mastercard', 'Amex', 'Discover', 'Diners Club', 'JCB', 'Maestro', 'UnionPay', 'RuPay', 'Other']
+      .map((b) => h('option', { value: b, selected: (c.brand || '') === b }, b || 'Detect from number')));
+    const month = h('select', {}, ['', ...Array.from({ length: 12 }, (_, n) => String(n + 1))]
+      .map((m) => h('option', { value: m, selected: String(parseInt(c.expMonth, 10) || '') === m }, m ? m.padStart(2, '0') : '--')));
+    const year = input(c.expYear, { inputMode: 'numeric', placeholder: 'YYYY', maxLength: 4 });
+    const [code, codeBox] = secret(c.code, { inputMode: 'numeric', maxLength: 4 });
+    fields = [field('Cardholder name', holder), field('Number', numBox), field('Brand', brand),
+      pair(field('Expiry month', month), field('Expiry year', year)), field('Security code', codeBox)];
+    read = () => {
+      const number = num.value.replace(/[\s-]/g, '');
+      if (number && !/^\d{12,19}$/.test(number)) throw new Error('The card number should be 12 to 19 digits');
+      const y = year.value.trim();
+      if (y && !/^\d{2}(\d{2})?$/.test(y)) throw new Error('Expiry year: 4 digits, e.g. 2029');
+      return { card: { cardholderName: holder.value.trim(), number, brand: brand.value || bw.cardBrand(number), expMonth: month.value,
+        expYear: y.length === 2 ? `20${y}` : y, code: code.value.trim() } };
+    };
+  } else if (t === 4) {
+    const f = Object.fromEntries(bw.IDENTITY_FIELDS.map((k) => [k, input(d[k], { autocomplete: 'off' })]));
+    f.email.type = 'email';
+    f.phone.type = 'tel';
+    const [ssn, ssnBox] = secret(d.ssn);
+    f.ssn = ssn;
+    fields = [pair(field('Title', f.title), field('First name', f.firstName)), pair(field('Middle name', f.middleName), field('Last name', f.lastName)),
+      field('Company', f.company), pair(field('Email', f.email), field('Phone', f.phone)),
+      field('Address', f.address1), field('Address line 2', f.address2), field('Address line 3', f.address3),
+      pair(field('City', f.city), field('State / province', f.state)), pair(field('Postal code', f.postalCode), field('Country', f.country)),
+      field('Username', f.username), field('Social security number', ssnBox),
+      pair(field('Passport number', f.passportNumber), field('Licence number', f.licenseNumber))];
+    read = () => ({ identity: Object.fromEntries(bw.IDENTITY_FIELDS.map((k) => [k, f[k].value.trim()])) });
+  } else read = () => ({});
+  const target = !item && unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
+  const readOnly = item?.raw?.edit === false;
+  const btn = h('button', { className: 'primary', disabled: readOnly }, readOnly ? 'Read-only' : 'Save');
+  const err = h('p', { className: 'err' });
+  const del = h('button', {
+    type: 'button', className: 'danger', title: 'Move to the trash (restore it from the Bitwarden web vault)',
+    onclick: () => (del.textContent === 'Sure?' ? run(del, err, () => deleteItem(item)) : (del.textContent = 'Sure?')),
+  }, 'Delete');
+  const form = h('form', {
+    onsubmit: (e) => {
+      e.preventDefault();
+      if (readOnly) return;
+      run(btn, err, async () => {
+        const extra = read();
+        const fallback = t === 3 ? [extra.card.brand || 'Card', extra.card.number.slice(-4)].filter(Boolean).join(' ')
+          : t === 4 ? [extra.identity.firstName, extra.identity.lastName].filter(Boolean).join(' ') : '';
+        const nm = name.value.trim() || fallback;
+        if (!nm) throw new Error('Give it a name');
+        const a = acct(item?.a || (target ? target.value : unlocked()[0].id));
+        if (!await saveItem(a, item, { type: t, name: nm, notes: notes.value, ...extra })) throw new Error('Vault locked or removed before the save finished');
+        kind = t;
+        vaultView();
+      });
+    },
+  },
+    target && field('Vault', target), field('Name', name), ...fields, field(t === 2 ? 'Note' : 'Notes', notes),
+    h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
+  const noun = { 2: 'secure note', 3: 'card', 4: 'identity' }[t];
+  app.replaceChildren(title(`${item ? 'Edit' : 'Add'} ${noun}`), item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a)), form);
+  (t === 2 && item ? notes : name).focus();
 }
 
 const CANCEL = { error: { name: 'NotAllowedError', message: 'Cancelled' } };

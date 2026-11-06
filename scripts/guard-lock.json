@@ -90,6 +90,7 @@
     "bridge.js",
     "bw.js",
     "coord.js",
+    "formfill.js",
     "icons/128.png",
     "icons/16.png",
     "icons/48.png",

@@ -30,8 +30,10 @@ Loading from a specific commit means nothing changes until you pull and reload o
 - Several vaults in one list (Vaultwarden, bitwarden.com, bitwarden.eu)
 - Offline: unlock and fill from an encrypted local copy; syncs when the popup opens (if older than 5 minutes)
 - Matching follows Bitwarden's per-URL match setting and equivalent domains, with the Public Suffix List
-
-Secure notes, cards and identities are not shown yet.
+- Cards, identities and secure notes: browse, search, add, edit, copy; **Fill** puts a card or identity into a
+  checkout or address form (https pages only). Cards may fill the site's own frames and known payment-provider
+  frames (Stripe, Braintree, Adyen, PayPal, Square, Shopify and others); identities the site's own frames only.
+  The form filler (`formfill.js`) is injected only when you press Fill.
 
 ## Security model
 

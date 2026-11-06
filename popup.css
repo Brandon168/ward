@@ -62,3 +62,8 @@ button.touch { display: block; width: 100%; margin: 0 0 12px; }
 .touchlog { white-space: pre-wrap; font-size: 11px; color: var(--muted); max-height: 160px; overflow: auto; margin: 0 0 8px; }
 footer .locks { display: flex; flex-direction: column; gap: 4px; }
 footer .locks select { width: auto; max-width: 210px; padding: 2px 22px 2px 4px; font-size: 11px; }
+nav.kinds { display: flex; gap: 2px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
+nav.kinds button { all: unset; cursor: pointer; padding: 4px 8px; font-size: 12px; color: var(--muted); border-bottom: 2px solid transparent; }
+nav.kinds button.on { color: var(--fg); border-bottom-color: currentColor; }
+nav.kinds button:hover { color: var(--fg); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

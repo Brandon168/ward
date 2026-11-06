@@ -197,17 +197,43 @@ export async function api(s, path, method = 'GET', body) {
 
 // --- vault --------------------------------------------------------------
 
-// ponytail: logins only; secure notes, cards and identities are skipped.
+// Item types as in Bitwarden: 1 login, 2 secure note, 3 card, 4 identity (Ward shows all four).
+export const CARD_FIELDS = ['cardholderName', 'brand', 'number', 'expMonth', 'expYear', 'code'];
+export const IDENTITY_FIELDS = ['title', 'firstName', 'middleName', 'lastName', 'address1', 'address2', 'address3', 'city', 'state',
+  'postalCode', 'country', 'company', 'email', 'phone', 'ssn', 'username', 'passportNumber', 'licenseNumber'];
+const nonEmpty = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null));
+// Brand from the card number's prefix, with Bitwarden's brand names.
+export function cardBrand(number) {
+  const n = String(number || '').replace(/\D/g, '');
+  if (/^4/.test(n)) return 'Visa';
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(n)) return 'Mastercard';
+  if (/^3[47]/.test(n)) return 'Amex';
+  if (/^(6011|65|64[4-9]|622)/.test(n)) return 'Discover';
+  if (/^3(0[0-5]|[68])/.test(n)) return 'Diners Club';
+  if (/^35(2[89]|[3-8])/.test(n)) return 'JCB';
+  if (/^(5018|5020|5038|6304|6759|676[1-3])/.test(n)) return 'Maestro';
+  if (/^62/.test(n)) return 'UnionPay';
+  return n ? 'Other' : '';
+}
 const collator = new Intl.Collator();
 // prev: Map of id -> earlier result; entries whose revisionDate is unchanged are reused instead of decrypted again.
 export async function decryptVault(sync, userKey, prev) {
   const priv = sync.profile.privateKey && (await decrypt(sync.profile.privateKey, userKey));
   const orgKeys = {};
   for (const o of sync.profile.organizations || []) if (o.key) orgKeys[o.id] = await rsaDecrypt(o.key, priv);
-  const out = await Promise.all(sync.ciphers.filter((c) => c.type === 1 && !c.deletedDate).map(async (c) => {
+  const out = await Promise.all(sync.ciphers.filter((c) => [1, 2, 3, 4].includes(c.type) && !c.deletedDate).map(async (c) => {
     if (prev?.get(c.id)?.rev === c.revisionDate) return prev.get(c.id);
     try {
       const key = c.key ? await decrypt(c.key, orgKeys[c.organizationId] || userKey) : orgKeys[c.organizationId] || userKey;
+      if (c.type !== 1) { // Ward: secure notes, cards, identities. uris: [] keeps them out of every site match.
+        const [name, notes] = await Promise.all([c.name, c.notes].map((x) => decStr(x, key)));
+        const base = { id: c.id, rev: c.revisionDate, type: c.type, raw: c, key, name, notes, uris: [],
+          reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined };
+        const dec = async (obj, fields) => nonEmpty(Object.fromEntries(await Promise.all(fields.map(async (k) => [k, await decStr(obj?.[k], key)]))));
+        if (c.type === 3) return { ...base, card: await dec(c.card, CARD_FIELDS) };
+        if (c.type === 4) return { ...base, identity: await dec(c.identity, IDENTITY_FIELDS) };
+        return base;
+      }
       const l = c.login || {};
       const [name, notes, username, password, totp, ...uris] = await Promise.all(
         [c.name, c.notes, l.username, l.password, l.totp, ...(l.uris || []).map((u) => u.uri)].map((x) => decStr(x, key)));
@@ -225,7 +251,34 @@ export async function decryptVault(sync, userKey, prev) {
 
 // item: a decryptVault() entry to edit, or null to create. Starts from the synced (still encrypted) cipher so
 // fields this client doesn't show (custom fields, passkeys, attachments, history) are sent back untouched.
+// Ward: notes, cards and identities. v: { type, name, notes, card?, identity? }; fields this client doesn't show
+// (custom fields, attachments, password history) are sent back untouched, as for logins.
+async function saveOther(s, userKey, item, v, type) {
+  if (item?.raw?.edit === false) throw new Error('This item is read-only');
+  if (item && (!item.raw || typeof item.raw !== 'object' || !item.id)) throw new Error('Item data is incomplete; sync and try again');
+  const key = item?.key || userKey;
+  const e = (x) => (x ? encrypt(String(x), key) : null);
+  const c = item ? structuredClone(item.raw) : { type, organizationId: null, folderId: null, favorite: false, reprompt: 0 };
+  c.name = await e(v.name);
+  c.notes = await e(v.notes);
+  const enc = async (fields, values, old) => ({ ...(old || {}), ...Object.fromEntries(await Promise.all(fields.map(async (k) => [k, await e(values?.[k])]))) });
+  if (type === 2) c.secureNote = { type: 0, ...(c.secureNote || {}) };
+  if (type === 3) c.card = await enc(CARD_FIELDS, { ...v.card, brand: v.card?.brand || cardBrand(v.card?.number) }, c.card);
+  if (type === 4) c.identity = await enc(IDENTITY_FIELDS, v.identity, c.identity);
+  return send(s, item, c);
+}
+async function send(s, item, c) {
+  if (c.attachments) c.attachments2 = Object.fromEntries(c.attachments.map((a) => [a.id, { fileName: a.fileName, key: a.key }]));
+  delete c.attachments;
+  c.encryptedFor = JSON.parse(atob(s.tokens.access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub; // user id from the JWT
+  if (!item) return api(s, '/ciphers', 'POST', c);
+  c.lastKnownRevisionDate = c.revisionDate;
+  return api(s, `/ciphers/${item.id}`, 'PUT', c);
+}
+
 export async function saveCipher(s, userKey, item, v) {
+  const type = item?.raw?.type ?? v?.type ?? 1;
+  if ([2, 3, 4].includes(type)) return saveOther(s, userKey, item, v, type);
   if (item?.raw?.edit === false) throw new Error('This login is read-only');
   if (item && (!item.raw || typeof item.raw !== 'object' || !item.id)) throw new Error('Login data is incomplete; sync and try again');
   if (!v || !Array.isArray(v.uris)) throw new Error('Login URLs are invalid');
@@ -253,12 +306,7 @@ export async function saveCipher(s, userKey, item, v) {
   if (v.passkey) c.login.fido2Credentials = [{
     ...Object.fromEntries(await Promise.all(PASSKEY_FIELDS.map(async (k) => [k, await e(v.passkey[k])]))), creationDate: v.passkey.creationDate }];
   delete c.login.uri; // legacy single-URI field; the server would append it to uris
-  if (c.attachments) c.attachments2 = Object.fromEntries(c.attachments.map((a) => [a.id, { fileName: a.fileName, key: a.key }]));
-  delete c.attachments;
-  c.encryptedFor = JSON.parse(atob(s.tokens.access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub; // user id from the JWT
-  if (!item) return api(s, '/ciphers', 'POST', c);
-  c.lastKnownRevisionDate = c.revisionDate;
-  return api(s, `/ciphers/${item.id}`, 'PUT', c);
+  return send(s, item, c);
 }
 
 // Moves an item to the trash, as the official clients' Delete does (restorable there for 30 days).

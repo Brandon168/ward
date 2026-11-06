@@ -35,8 +35,15 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
    - If it fails, press **Copy report** and paste the report back to the assistant: it says whether Vivaldi
      supports WebAuthn PRF for extensions, which decides between this approach and a small native helper.
 9. **Passkeys**: optional; sign in to a site with a passkey stored in your vault.
+10. **Cards / Identities / Notes** (tabs under the toolbar):
+    - Add a test card (e.g. `4111 1111 1111 1111`, any future expiry, `123`) and an identity; open a secure note.
+    - On a real checkout page, open Ward (it opens on Cards when the page looks like checkout and has no logins),
+      press **Fill**: number, name, expiry (dropdowns or `MM/YY`) and security code should fill, including Stripe's
+      embedded card box. Don't submit anything.
+    - On a shipping/address form, Fill an identity: name, address lines, city, state (dropdown), ZIP, country, phone, email.
+    - Items set to "Master password re-prompt" in Bitwarden ask for it before Fill or copying the number/code.
 
 ## What's not there yet
 
-Secure notes, cards and identities are hidden. No clipboard clearing. Touch ID covers the vaults that were open
+No in-page menu for card fields yet (use the popup). No clipboard clearing. Touch ID covers the vaults that were open
 when you set it up. See ROADMAP.md.
