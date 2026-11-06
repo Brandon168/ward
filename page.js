@@ -1,4 +1,4 @@
-// Runs in the page itself (MAIN world) so it can wrap navigator.credentials. Passkey requests go to BW Lite via
+// Runs in the page itself (MAIN world) so it can wrap navigator.credentials. Passkey requests go to Ward via
 // bridge.js; the answer is a credential, an error, or "fallback" to hand the call to the browser's own passkey UI.
 (() => {
   const c = navigator.credentials;
@@ -31,7 +31,7 @@
     }));
   }
 
-  // ponytail: an AbortSignal on the request is ignored; the BW Lite window stays open until answered or closed.
+  // ponytail: an AbortSignal on the request is ignored; the Ward window stays open until answered or closed.
   const ask = (kind, publicKey) => new Promise((resolve) => {
     const id = crypto.randomUUID();
     const done = (r) => (removeEventListener('message', on), clearTimeout(t), resolve(r));
@@ -53,7 +53,7 @@
   };
   c.create = wrap('create');
   c.get = wrap('get');
-  // BW Lite is a user-verifying platform authenticator, so sites offer passkey creation even without Hello / Touch ID.
+  // Ward is a user-verifying platform authenticator, so sites offer passkey creation even without Hello / Touch ID.
   PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = async () => true;
   const caps = PublicKeyCredential.getClientCapabilities?.bind(PublicKeyCredential);
   if (caps) PublicKeyCredential.getClientCapabilities = async () => ({ ...await caps(), userVerifyingPlatformAuthenticator: true });

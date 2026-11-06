@@ -28,10 +28,10 @@ jobs:
           name: dist
           path: dist
       - name: Source archive
-        run: git archive --format=zip --prefix="bw-lite-${GITHUB_REF_NAME#v}-source/" -o "dist/bw-lite-${GITHUB_REF_NAME#v}-source.zip" HEAD
+        run: git archive --format=zip --prefix="ward-${GITHUB_REF_NAME#v}-source/" -o "dist/ward-${GITHUB_REF_NAME#v}-source.zip" HEAD
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" # checkout drops the tag's annotation
-          gh release create "$GITHUB_REF_NAME" dist/*.zip --title "BW Lite ${GITHUB_REF_NAME#v}" --notes-from-tag --verify-tag
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --title "Ward ${GITHUB_REF_NAME#v}" --notes-from-tag --verify-tag

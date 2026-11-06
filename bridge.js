@@ -50,6 +50,6 @@ addEventListener('message', (e) => {
   const fallback = () => send({ bwliteRes: id, fallback: true }, id);
   try {
     chrome.runtime.sendMessage({ bwliteReq: id, kind, options: o }).then((r) => r && send(r, id), fallback);
-  } catch { fallback(); } // "Extension context invalidated": BW Lite was reloaded or updated under this page
+  } catch { fallback(); } // "Extension context invalidated": Ward was reloaded or updated under this page
 });
 chrome.runtime.onMessage.addListener((m) => m?.bwliteRes && send(m, m.bwliteRes));

@@ -395,7 +395,7 @@ function loginView() {
   },
     field('Server', server), field('Email', email), field('Master password', pw), field('Label', label), codeField,
     h('div', { className: 'inline' }, btn, accounts.length && h('button', { type: 'button', onclick: accountsView }, 'Cancel')), err);
-  app.replaceChildren(title(accounts.length ? 'Add vault' : 'BW Lite'), form);
+  app.replaceChildren(title(accounts.length ? 'Add vault' : 'Ward'), form);
   email.focus();
 }
 
@@ -423,7 +423,7 @@ function unlockView() {
     field(`Master password${todo.length > 1 ? ' (tried on every locked vault)' : ''}`, pw),
     h('p', { className: 'muted' }, `Locked: ${todo.map((a) => a.label).join(', ')}`),
     h('div', { className: 'inline' }, btn, unlocked().length && h('button', { type: 'button', onclick: vaultView }, 'Skip')), err);
-  app.replaceChildren(title('BW Lite'), form, h('button', { className: 'link', onclick: accountsView }, 'Vaults'));
+  app.replaceChildren(title('Ward'), form, h('button', { className: 'link', onclick: accountsView }, 'Vaults'));
   pw.focus();
 }
 
@@ -432,7 +432,7 @@ function accountsView() {
   const rows = accounts.map((a, i) => {
     const label = h('input', { value: a.label, title: 'Label shown on this vault\'s items', onchange: () => update(a, { label: label.value.trim() || a.email }) });
     const remove = h('button', {
-      title: 'Log out and remove this vault from BW Lite',
+      title: 'Log out and remove this vault from Ward',
       onclick: () => (remove.textContent === 'Sure?' ? removeAccount(a) : (remove.textContent = 'Sure?')),
     }, 'Remove');
     return h('div', { className: 'row' },
@@ -552,7 +552,7 @@ function repromptView(i, next) {
       });
     },
   }, field(`Master password for ${i.name || 'this login'}`, pw), h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel')), err);
-  app.replaceChildren(title('BW Lite'), form);
+  app.replaceChildren(title('Ward'), form);
   pw.focus();
 }
 
@@ -729,7 +729,7 @@ function vaultView() {
   const theme = themeButton();
   theme.className = 'quiet';
   app.replaceChildren(
-    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'BW Lite'),
+    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward'),
       h('nav', {}, quiet('new', 'Add login', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
     h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
     h('footer', {},
@@ -892,12 +892,12 @@ function passkeyView() {
           await markUsed(i);
           answer({ result });
         })));
-    return show('Sign in with passkey', rows.length ? `Passkeys for ${rpId}:` : `No passkey for ${rpId} in BW Lite.`, rows);
+    return show('Sign in with passkey', rows.length ? `Passkeys for ${rpId}:` : `No passkey for ${rpId} in Ward.`, rows);
   }
 
   const exclude = ids(o.excludeCredentials);
   // no auto-answer: the user may still want to add a security key next to it
-  if (mine.some((m) => exclude.has(m.id))) return show('Save passkey', 'This site\'s passkey is already in BW Lite.', []);
+  if (mine.some((m) => exclude.has(m.id))) return show('Save passkey', 'This site\'s passkey is already in Ward.', []);
   const save = async (a, item) => {
     if (!a || !await authorized(a)) return answer(CANCEL);
     const { passkey, result } = await bw.passkeyCreate(o, origin, rpId);
@@ -954,7 +954,7 @@ function saveView() {
     },
   }, 'Never');
   app.replaceChildren(
-    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'BW Lite')),
+    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward')),
     h('p', {}, kind === 'add' ? `Save the login${username ? ` for ${username}` : ''}?` : `Update the password for ${username || 'this login'}?`),
     h('div', { className: 'inline' }, target, save, never, h('button', { onclick: close }, 'Not now')), err);
 }

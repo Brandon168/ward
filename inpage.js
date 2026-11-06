@@ -128,7 +128,7 @@ if (!globalThis.bwliteFill) {
     root.append(style);
     const box = document.createElement('div');
     const message = document.createElement('p');
-    message.textContent = 'BW Lite found a login to save.';
+    message.textContent = 'Ward found a login to save.';
     box.append(message);
     const review = button(box, 'Review save', async (e) => {
       if (!e.isTrusted) return;

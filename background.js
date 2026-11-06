@@ -294,7 +294,7 @@ async function fillFromMenu(k, sender) {
   return { username: item.username, password: item.password, code };
 }
 
-// --- passkeys: check the request and open a BW Lite window for it; that window (popup.js passkeyView) answers the
+// --- passkeys: check the request and open a Ward window for it; that window (popup.js passkeyView) answers the
 // page directly. The origin comes from Chrome (sender.origin), never from the page.
 
 async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentId }) {

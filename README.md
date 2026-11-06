@@ -1,57 +1,70 @@
-# BW Lite
+# Ward
 
-[![CI](https://github.com/yowmamasita/bw-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/yowmamasita/bw-lite/actions/workflows/ci.yml)
+A fast, lean browser extension for a self-hosted [Vaultwarden](https://github.com/dani-garcia/vaultwarden)
+(or any Bitwarden-compatible) server. The goal is 1Password-style speed and polish on a server you own:
+instant search and fill, offline use, Touch ID unlock, and live sync.
 
-A tiny Chrome and Firefox extension for Bitwarden and Vaultwarden. Around 2,000 lines of plain JavaScript, no build step and no framework.
+Ward is plain JavaScript with no framework, no bundler and no npm dependencies. The files in this repository
+are exactly what the browser runs, so a release can be reviewed line by line.
 
-<p>
-  <img src="screenshots/popup.png" width="300" alt="Popup with logins for github.com from two vaults">
-  <img src="screenshots/menu.png" width="300" alt="Login menu under the username field on github.com">
-</p>
+Initial target: **Vivaldi on macOS** (any Chromium browser should work).
 
-It searches your logins, fills them, shows TOTP codes, saves passkeys and signs in with them, and offers to save or update a login after you sign in. Add as many accounts as you like on bitwarden.com, bitwarden.eu or your own Vaultwarden and they show up as one list with a colored tag for each vault.
+## Status
 
-Click into a login field and the logins for that site show up right under it. Ctrl+Shift+L (Cmd+Shift+L on a Mac) fills the top one without opening the popup, and the login you used last stays on top. Logins inside iframes get filled too, but only when the frame's own address matches. Matching follows Bitwarden's match setting on each URL and its equivalent domains, so google.com and youtube.com count as one site. Logins set to re-prompt for the master password ask for it in the popup before they fill, copy or open, and stay out of the shortcut and the in-page menu.
+Private, pre-release. See [ROADMAP.md](ROADMAP.md) for what's done and next, and
+[docs/security-review.md](docs/security-review.md) for the review of the seed code.
 
-Passkeys are stored the same way Bitwarden stores them, so the official apps can use the ones you make here and the other way round. If you'd rather use your phone or a security key, one button hands the request back to the browser.
+## Install (unpacked)
 
-After a submitted login, a small page bar offers a Review save button. Review opens the extension's own confirmation window; the page never hosts the vault or the saved password.
+1. Clone this repository (or download a CI artifact) somewhere permanent.
+2. Open `vivaldi://extensions` (or `chrome://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and pick the repository folder (the one that contains `manifest.json`).
 
-<img src="screenshots/save.png" width="408" alt="Save prompt asking which vault to save a new login to">
+The unpacked extension ID is always `nnejaecbmnadljdpinaljbdpfcoocain` (pinned by `key` in `manifest.json`).
+Loading from a specific commit means nothing changes until you pull and reload on purpose.
 
-Opening or unlocking the popup syncs any vault last synced more than 5 minutes ago, in the background, so changes from the other Bitwarden apps show up on their own. The sync button (Ctrl+S) does it right away.
+## What it does today
 
-## Install
+- Logins: search, fill (popup, in-page menu under the login field, Cmd+Shift+L), copy, add, edit, delete
+- TOTP codes, passkeys (stored in Bitwarden's format, so the official apps can use them), save/update prompts
+- Several vaults in one list (Vaultwarden, bitwarden.com, bitwarden.eu)
+- Offline: unlock and fill from an encrypted local copy; syncs when the popup opens (if older than 5 minutes)
+- Matching follows Bitwarden's per-URL match setting and equivalent domains, with the Public Suffix List
 
-- **Chrome, Edge, Brave:** [Chrome Web Store](https://chromewebstore.google.com/detail/dfjjkaikjkemjhjnpmbimmlbbccngmjb)
-- **Firefox 140+:** [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/bw-lite/)
+Secure notes, cards and identities are not shown yet.
 
-Or load it unpacked in Chrome, for example to run `main`:
+## Security model
 
-1. Download `bw-lite-<version>.zip` from [Releases](https://github.com/yowmamasita/bw-lite/releases) and unzip it somewhere permanent
-2. Open `chrome://extensions` and turn on Developer mode
-3. Click Load unpacked and pick the `bw-lite` folder
+The master password never leaves the popup. Unlock happens locally against the protected key saved at login.
+The vault key and decrypted list live in the browser's memory-only session storage and are gone when you lock or
+quit the browser. "Never lock" keeps the key on disk instead (like Bitwarden's Never timeout). Cached vault data on
+disk is encrypted. Nothing is filled without a click or the shortcut.
 
-The unpacked extension's ID is always `edggmjogcnhnppgfidekhhdjpdjcpdmk`; the store versions have their own IDs and their own storage, so a vault added in one isn't in the other.
-
-## Security
-
-Your master password never leaves the popup. The vault key and the decrypted list live in the browser's memory-only session storage and are gone when you lock or quit the browser. Never lock keeps the key on disk instead, exactly like Bitwarden's own Never timeout. Cached vault contents on disk are encrypted; account metadata and login tokens are stored in the browser profile. Nothing gets filled without a click or the shortcut. This code hasn't had an independent security review. To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-Secure notes, cards and identities aren't supported and stay hidden. Two-step login works with authenticator apps and Bitwarden's emailed new device codes.
+CI enforces guard rails on every change, including upstream cherry-picks: manifest permissions are pinned,
+network calls may only go to the configured server (plus well-known passkey endpoints), dynamic code is
+forbidden, vendored files must match pinned hashes, and per-page code stays inside a size budget.
+See `scripts/guard.mjs`.
 
 ## Development
 
 ```sh
-node test.mjs
-docker run -d --name bwlite-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true \
-  -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 vaultwarden/server
-node test.mjs --integration
-./pack.sh
+node test.mjs                       # offline checks
+docker run -d --name ward-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true \
+  -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 vaultwarden/server:1.37.5
+node test.mjs --integration         # against the disposable Vaultwarden above
+node scripts/guard.mjs              # security guard rails
+./pack.sh                           # dist/ward-<version>.zip
 ```
 
-`node test.mjs` runs the offline checks; the optional `--integration` checks use the disposable local Vaultwarden above. CI runs both on every push and pull request, then builds and lints the extension for Firefox.
+## Upstream
 
-`./pack.sh` builds `dist/bw-lite-<version>.zip` to load unpacked in Chrome, `dist/bw-lite-<version>-chrome.zip` for the Chrome Web Store and `dist/bw-lite-<version>-firefox.zip` for Firefox Add-ons (Firefox gets `background.scripts` instead of the service worker; `manifest.json` in the repo is the Chrome one). To release, bump `version` in `manifest.json`, commit, and push a matching annotated tag whose message is the release notes (`git tag -a v0.3.3 -m "notes" && git push origin v0.3.3`). The Release workflow runs the tests and publishes the zips and a source archive as a GitHub release. Not every release goes to the stores: for the ones that should, run the Stores workflow (Actions → Stores → Run workflow, or `gh workflow run store.yml -f tag=v0.4.2`); it submits the Firefox zip with the source archive and the release notes to Firefox Add-ons and the Chrome zip to the Chrome Web Store, using the repository secrets `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` ([API key page](https://addons.mozilla.org/developers/addon/api/key/)) and `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` ([how to get them](https://github.com/fregante/chrome-webstore-upload-keys)).
+Ward is built on [BW Lite](https://github.com/yowmamasita/bw-lite) by Ben Adrian Sarmiento (MIT), seeded from
+commit `1d77b9e`. The git remote `upstream` points there (push disabled). A weekly workflow reports new upstream
+commits; fixes are cherry-picked on purpose and go through the same CI guards. Small fixes that fit BW Lite's
+scope are offered back upstream.
 
- Not affiliated with Bitwarden, Inc. MIT licensed. `vendor/argon2.umd.min.js` is [hash-wasm](https://github.com/Daninet/hash-wasm), also MIT. `vendor/public_suffix_list.dat` and the generated `vendor/public_suffix_list.js` are the [Public Suffix List](https://publicsuffix.org/list/) from 2026-10-20, licensed under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/); keep both files together when updating the list, and regenerate the .js with `vendor/psl.sh <list date>`. `vendor/argon2.umd.min.js` is `dist/argon2.umd.min.js` from hash-wasm 4.12.0, unmodified.
+Internal message keys still use the `bwlite` prefix so upstream fixes cherry-pick cleanly.
+
+Not affiliated with Bitwarden, Inc. or the Vaultwarden project. MIT licensed. `vendor/argon2.umd.min.js` is
+[hash-wasm](https://github.com/Daninet/hash-wasm) 4.12.0 (MIT). `vendor/public_suffix_list.*` is the
+[Public Suffix List](https://publicsuffix.org/list/) (MPL 2.0).
