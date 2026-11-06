@@ -1,9 +1,12 @@
 name: CI
 
+# Docs-only pushes skip CI: no test or guard reads Markdown or docs/. A push that touches anything else runs it all.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
   workflow_call:
 
 permissions:
@@ -15,10 +18,20 @@ concurrency:
 
 # Actions are pinned to full commit SHAs (a tag can be moved; a compromised Action is how the
 # April 2026 Bitwarden CLI npm release was poisoned).
+# One job: guard rails first (they run while Vaultwarden starts), then the tests and the build. GitHub bills each job
+# rounded up to a whole minute, so a separate few-second guard job cost a minute per push.
 jobs:
-  guard:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    services:
+      vaultwarden:
+        image: vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
+        ports: ['8099:80']
+        env:
+          I_REALLY_WANT_VOLATILE_STORAGE: 'true'
+          LOGIN_RATELIMIT_MAX_BURST: '100'
+          LOGIN_RATELIMIT_SECONDS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,25 +53,6 @@ jobs:
       - name: No secrets committed
         run: |
           ! git grep -nI -E '(BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})' -- . ':!scripts/guard.mjs'
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      vaultwarden:
-        image: vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
-        ports: ['8099:80']
-        env:
-          I_REALLY_WANT_VOLATILE_STORAGE: 'true'
-          LOGIN_RATELIMIT_MAX_BURST: '100'
-          LOGIN_RATELIMIT_SECONDS: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
       - name: Wait for Vaultwarden
         run: timeout 60 sh -c 'until curl -sf localhost:8099/alive; do sleep 1; done'
       - name: Offline and integration tests

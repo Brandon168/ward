@@ -22,7 +22,8 @@ node scripts/guard.mjs        # security guard rails (permissions, size budgets)
 node test.mjs --integration   # against a throwaway Vaultwarden on 127.0.0.1:8099 (container `ward-vw`, see README)
 ```
 
-CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` on every push.
+CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` in one job on every push, except pushes that only change
+Markdown or docs/.
 
 ## UI work
 
