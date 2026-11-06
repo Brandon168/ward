@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ward UI mockups</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --fg:#14171c; --muted:#6b7280; --line:#e5e7eb; --raised:#f3f4f6; --accent:#2f6fec; --accentfg:#fff; --ok:#16a34a; --chip:#eef2ff; }
+  .dark { color-scheme: dark; --bg:#0b0d10; --panel:#15181d; --fg:#e8ebf0; --muted:#8b93a1; --line:#262b33; --raised:#1d2128; --accent:#4f8cff; --accentfg:#fff; --ok:#22c55e; --chip:#1c2433; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  header.top { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header.top b { margin-right:8px; }
+  header.top button { border:1px solid var(--line); background:var(--raised); color:var(--fg); border-radius:999px; padding:4px 10px; cursor:pointer; font:inherit; }
+  header.top button.on { background:var(--accent); color:var(--accentfg); border-color:var(--accent); }
+  header.top .sp { flex:1; }
+  .stage { display:flex; flex-wrap:wrap; gap:24px; padding:18px 14px 40px; align-items:flex-start; }
+  .note { max-width:340px; color:var(--muted); }
+  .note h3 { color:var(--fg); margin:0 0 6px; font-size:14px; }
+  .note ul { padding-left:18px; margin:6px 0; }
+  .popup { width:380px; height:560px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 30px #0002; overflow:hidden; display:flex; flex-direction:column; position:relative; }
+  .popup.wide { width:660px; }
+  .browserbar { font-size:11px; color:var(--muted); padding:6px 10px; border-bottom:1px solid var(--line); background:var(--raised); display:flex; gap:6px; align-items:center; }
+  .browserbar .url { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:2px 8px; flex:1; }
+  .icon { width:28px; height:28px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; font-weight:700; color:#fff; flex:none; font-size:13px; }
+  .toast { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); background:var(--fg); color:var(--panel); padding:6px 12px; border-radius:8px; font-size:12px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  .toast.show { opacity:1; }
+  .muted { color:var(--muted); }
+  .small { font-size:11px; }
+  button.ghost { border:none; background:none; color:var(--muted); cursor:pointer; padding:4px 6px; border-radius:6px; font:inherit; }
+  button.ghost:hover { background:var(--raised); color:var(--fg); }
+  button.fill { border:none; background:var(--accent); color:var(--accentfg); border-radius:7px; padding:5px 12px; font:inherit; font-weight:600; cursor:pointer; }
+  button.fill.quiet { background:var(--raised); color:var(--fg); }
+  .search { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .search input { flex:1; border:none; outline:none; background:transparent; color:var(--fg); font:inherit; font-size:15px; }
+  .scroll { overflow:auto; flex:1; }
+  .sec { font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:10px 14px 4px; }
+  .row { display:flex; align-items:center; gap:10px; padding:7px 12px; cursor:pointer; border-radius:8px; margin:0 6px; }
+  .row:hover, .row.sel { background:var(--raised); }
+  .row .txt { flex:1; min-width:0; }
+  .row .txt div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kbd { font-size:10.5px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+  /* A */
+  .hero { margin:4px 10px 6px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:var(--raised); }
+  .hero .head { display:flex; gap:10px; align-items:center; }
+  .hero .acts { display:flex; gap:4px; margin-top:8px; align-items:center; }
+  .tabs { display:flex; border-top:1px solid var(--line); }
+  .tabs button { flex:1; border:none; background:none; color:var(--muted); padding:9px 0; cursor:pointer; font:inherit; font-size:12px; }
+  .tabs button.on { color:var(--accent); font-weight:600; box-shadow:inset 0 2px 0 var(--accent); }
+  .detail { position:absolute; inset:29px 0 0 0; background:var(--panel); display:flex; flex-direction:column; transform:translateX(100%); transition:transform .18s; }
+  .detail.open { transform:none; }
+  .dh { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .field { padding:8px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .field .lab { width:84px; color:var(--muted); font-size:11.5px; }
+  .field .val { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .field .mono { font-family: ui-monospace, Menlo, monospace; }
+  /* B */
+  .palette .search input { font-size:16px; }
+  .palette .row .hint { opacity:0; }
+  .palette .row.sel .hint { opacity:1; }
+  .palette .foot { border-top:1px solid var(--line); padding:7px 12px; display:flex; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:11px; }
+  .palette .status { border-top:1px solid var(--line); padding:6px 12px; display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }
+  .tag { font-size:10px; border-radius:4px; padding:1px 5px; background:var(--chip); color:var(--muted); }
+  /* C */
+  .two { display:flex; flex:1; min-height:0; }
+  .two .left { width:250px; border-right:1px solid var(--line); display:flex; flex-direction:column; }
+  .two .right { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .nav { padding:6px; border-bottom:1px solid var(--line); }
+  .nav div { display:flex; justify-content:space-between; padding:5px 8px; border-radius:6px; cursor:pointer; }
+  .nav div.on { background:var(--chip); color:var(--accent); font-weight:600; }
+  .empty { margin:auto; color:var(--muted); }
+  /* E: one-click */
+  .chips { display:flex; gap:6px; margin-top:8px; }
+  .chip { flex:1; min-width:0; border:1px solid var(--line); background:var(--panel); color:var(--fg); border-radius:8px; padding:6px 8px; cursor:pointer;
+    font:inherit; font-size:12px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+  .chip:hover { border-color:var(--accent); }
+  .chip[data-copy=username] { flex:1.8; }
+  .chip .k { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; display:block; }
+  .chip.mono { font-family: ui-monospace, Menlo, monospace; }
+  .chip.done { border-color:var(--ok); color:var(--ok); }
+  .ring { width:14px; height:14px; border-radius:50%; flex:none; background:conic-gradient(var(--accent) calc(var(--p) * 1%), var(--line) 0); }
+  .ic { display:flex; gap:2px; opacity:0; transition:opacity .12s; }
+  .row:hover .ic, .row:focus-within .ic { opacity:1; }
+  .ic button { width:28px; height:28px; border:none; background:none; border-radius:7px; cursor:pointer; color:var(--muted); font-size:13px; }
+  .ic button:hover { background:var(--panel); color:var(--fg); }
+  .ic button.done { color:var(--ok); }
+  .ic .slot { width:28px; }
+  .styles { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; }
+  .styles button { border:1px solid var(--line); background:var(--raised); color:var(--fg); border-radius:999px; padding:3px 9px; cursor:pointer; font:inherit; font-size:12px; }
+  .styles button.on { background:var(--accent); color:var(--accentfg); border-color:var(--accent); }
+  /* pills */
+  .pills { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .pill { border:none; background:var(--panel); color:var(--fg); border-radius:999px; padding:5px 11px; cursor:pointer; font:inherit; font-size:12px; display:inline-flex; align-items:center; gap:6px; box-shadow:0 0 0 1px var(--line); }
+  .pill:hover { box-shadow:0 0 0 1px var(--accent); }
+  .pill.done { color:var(--ok); box-shadow:0 0 0 1px var(--ok); }
+  .pill .mono { font-family: ui-monospace, Menlo, monospace; }
+  /* rows */
+  .vrows { margin-top:6px; }
+  .vrow { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:7px; cursor:pointer; }
+  .vrow:hover { background:var(--panel); }
+  .vrow .v { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vrow .mono { font-family: ui-monospace, Menlo, monospace; }
+  .vrow .cp { color:var(--muted); font-size:11px; opacity:0; }
+  .vrow:hover .cp { opacity:1; }
+  .vrow.done .cp { opacity:1; color:var(--ok); }
+  .vrow .g { width:18px; display:flex; justify-content:center; align-items:center; color:var(--muted); }
+  /* segmented */
+  .seg { display:flex; margin-top:8px; border-radius:8px; overflow:hidden; box-shadow:0 0 0 1px var(--line); }
+  .seg button { flex:1; border:none; border-right:1px solid var(--line); background:var(--panel); color:var(--fg); padding:6px 4px; cursor:pointer; font:inherit; font-size:12px; display:flex; align-items:center; justify-content:center; gap:5px; }
+  .seg button:last-child { border-right:none; }
+  .seg button:hover { background:var(--chip); }
+  .seg button.done { color:var(--ok); }
+  .seg .mono { font-family: ui-monospace, Menlo, monospace; }
+  /* inline */
+  .inl { display:flex; gap:2px; align-items:center; }
+  .inl button { border:none; background:none; color:var(--muted); border-radius:7px; height:30px; min-width:30px; cursor:pointer; font:inherit; font-size:13px; padding:0 6px; display:inline-flex; align-items:center; gap:5px; }
+  .inl button:hover { background:var(--panel); color:var(--fg); }
+  .inl button.done { color:var(--ok); }
+  .inl .mono { font-family: ui-monospace, Menlo, monospace; font-size:12px; color:var(--fg); }
+</style>
+</head>
+<body>
+<header class="top">
+  <b>Ward UI mockups</b>
+  <button data-v="A">A · Familiar</button>
+  <button data-v="B">B · Command palette</button>
+  <button data-v="C">C · Two-pane</button>
+  <button data-v="D">A+B · Recommended mix</button>
+  <button data-v="E">E · One-click</button>
+  <span class="sp"></span>
+  <button id="theme">Dark</button>
+</header>
+<div class="stage" id="stage"></div>
+
+<script>
+// Fake data only. The "current page" is github.com.
+const SITE = 'github.com';
+const COLORS = ['#2f6fec','#e2553f','#16a34a','#9333ea','#ea8a0c','#0891b2','#db2777','#4b5563'];
+const color = (s) => COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+const items = [
+  { t:'login', name:'GitHub', user:'brandon@example.com', site:'github.com', totp:true, fav:true },
+  { t:'login', name:'GitHub (work)', user:'bre@company.com', site:'github.com', totp:true },
+  { t:'login', name:'Gitea', user:'admin', site:'nas.local:3000' },
+  { t:'login', name:'Amazon', user:'ann@example.com', site:'amazon.com', recent:true, fav:true },
+  { t:'login', name:'Vercel', user:'brandon@example.com', site:'vercel.com', recent:true },
+  { t:'login', name:'Netflix', user:'family@example.com', site:'netflix.com' },
+  { t:'login', name:'Proxmox', user:'root@pam', site:'192.168.1.10:8006' },
+  { t:'card', name:'Visa', last4:'1111', exp:'03/29', holder:'Ann Lee', recent:true },
+  { t:'card', name:'Amex', last4:'0005', exp:'11/27', holder:'Ann Lee' },
+  { t:'identity', name:'Home', who:'Ann Lee', city:'Springfield', recent:true },
+  { t:'identity', name:'Work', who:'Ann Lee', city:'Chicago' },
+  { t:'note', name:'Wi-Fi', preview:'ssid: home' },
+  { t:'note', name:'GitLab recovery codes', preview:'10 codes' },
+];
+const KINDS = { all:'All', login:'Logins', card:'Cards', identity:'Identities', note:'Notes' };
+const sub = (i) => i.t === 'login' ? i.user : i.t === 'card' ? `•••• ${i.last4} · ${i.exp}` : i.t === 'identity' ? `${i.who} · ${i.city}` : i.preview;
+const ico = (i) => `<span class="icon" style="background:${i.t === 'card' ? '#1f2937' : color(i.name)}">${i.t === 'card' ? '▭' : i.t === 'note' ? '✎' : i.t === 'identity' ? '◎' : i.name[0]}</span>`;
+const here = (i) => i.t === 'login' && i.site === SITE;
+const match = (i, q) => !q || `${i.name} ${i.user || ''} ${i.site || ''} ${i.holder || ''} ${i.who || ''} ${i.t}`.toLowerCase().includes(q.toLowerCase());
+const verb = (i) => i.t === 'note' ? 'Open' : 'Fill';
+let toastTimer;
+function toast(root, msg) { const t = root.querySelector('.toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1300); }
+const bar = `<div class="browserbar">● ● ● <span class="url">https://${SITE}/login</span></div>`;
+function code() { const s = Math.floor(Date.now() / 1000) % 30; return [`${(Math.floor(Date.now() / 30000) * 7919 % 1000000).toString().padStart(6, '0').replace(/(\d{3})(\d{3})/, '$1 $2')}`, 30 - s]; }
+
+function detailHtml(i) {
+  const f = (lab, val, acts = '⧉', mono = false) => `<div class="field"><span class="lab">${lab}</span><span class="val ${mono ? 'mono' : ''}">${val}</span><button class="ghost" data-act="copy" data-what="${lab}">${acts}</button></div>`;
+  let body = '';
+  if (i.t === 'login') body = f('username', i.user) + f('password', '••••••••••', '👁 ⧉', true) + (i.totp ? f('one-time', `<span class="otp">${code()[0]}</span> <span class="muted small">(${code()[1]}s)</span>`, '⧉', true) : '') + f('website', i.site, '↗');
+  if (i.t === 'card') body = f('number', `•••• •••• •••• ${i.last4}`, '👁 ⧉', true) + f('expiry', i.exp) + f('code', '•••', '👁 ⧉', true) + f('name', i.holder);
+  if (i.t === 'identity') body = f('name', i.who) + f('address', '1 Main St') + f('city', i.city) + f('email', 'ann@example.com');
+  if (i.t === 'note') body = `<div style="padding:12px 14px; white-space:pre-wrap">${i.preview}\n…</div>`;
+  return `<div class="dh"><button class="ghost" data-act="back">‹</button>${ico(i)}<div style="flex:1"><b>${i.name}</b><div class="muted small">${KINDS[i.t].replace(/s$/, '')}</div></div>${i.t !== 'note' ? `<button class="fill" data-act="fill">${verb(i)}</button>` : ''}</div><div class="scroll">${body}<div style="padding:12px 14px"><button class="fill quiet" data-act="edit">Edit</button></div></div>`;
+}
+
+// --- A: familiar ---------------------------------------------------------------------
+function viewA(el) {
+  let tab = 'all', q = '';
+  el.innerHTML = `<div class="popup">${bar}<div class="search"><span class="muted">⌕</span><input placeholder="Search Ward"><button class="ghost" title="Settings">⚙</button><button class="ghost" title="Lock">🔒</button></div><div class="scroll list"></div><div class="tabs"></div><div class="detail"></div><div class="toast"></div></div>
+  <div class="note"><h3>A · Familiar</h3>Looks like the password managers people know. The best match for the site is a big card with Fill; the rest are quiet rows. Click any row for details.<ul><li>Bottom tabs filter by type</li><li>System font, light/dark, accent colour</li><li>Most clicks, least keyboard</li></ul></div>`;
+  const pop = el.querySelector('.popup'), list = el.querySelector('.list'), det = el.querySelector('.detail');
+  const draw = () => {
+    const shown = items.filter((i) => (tab === 'all' || i.t === tab) && match(i, q));
+    const site = shown.filter(here), recent = shown.filter((i) => i.recent && !here(i)), rest = shown.filter((i) => !here(i) && !i.recent);
+    const row = (i) => `<div class="row" data-n="${items.indexOf(i)}">${ico(i)}<div class="txt"><div>${i.name}</div><div class="muted small">${sub(i)}</div></div>${i.t !== 'note' ? `<button class="fill quiet" data-act="fill">${verb(i)}</button>` : ''}</div>`;
+    let h = '';
+    if (site.length) {
+      const [best, ...more] = site;
+      h += `<div class="sec">For ${SITE}</div><div class="hero" data-n="${items.indexOf(best)}"><div class="head">${ico(best)}<div style="flex:1"><b>${best.name}</b><div class="muted small">${best.user}</div></div><button class="fill" data-act="fill">Fill</button></div><div class="acts"><button class="ghost" data-act="copy" data-what="username">⧉ user</button><button class="ghost" data-act="copy" data-what="password">⧉ pass</button><span class="muted small" style="margin-left:auto">${code()[0]} · ${code()[1]}s</span></div></div>` + more.map(row).join('');
+    }
+    if (recent.length) h += `<div class="sec">Recent</div>` + recent.map(row).join('');
+    if (rest.length && (q || tab !== 'all')) h += `<div class="sec">${q ? 'Matches' : KINDS[tab]}</div>` + rest.map(row).join('');
+    list.innerHTML = h || `<div class="empty" style="padding:40px;text-align:center">Nothing matches</div>`;
+    el.querySelector('.tabs').innerHTML = Object.entries(KINDS).map(([k, v]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${v}</button>`).join('');
+  };
+  el.querySelector('input').oninput = (e) => { q = e.target.value; draw(); };
+  pop.onclick = (e) => {
+    const t = e.target.closest('[data-tab],[data-act],[data-n]');
+    if (!t) return;
+    if (t.dataset.tab) { tab = t.dataset.tab; return draw(); }
+    const n = e.target.closest('[data-n]')?.dataset.n, it = items[n] || det._item;
+    if (t.dataset.act === 'fill') return toast(pop, `Filled ${it.name}`);
+    if (t.dataset.act === 'copy') return toast(pop, `Copied ${t.dataset.what}`);
+    if (t.dataset.act === 'back') return det.classList.remove('open');
+    if (t.dataset.act === 'edit') return toast(pop, 'Edit form');
+    if (n != null) { det._item = items[n]; det.innerHTML = detailHtml(items[n]); det.classList.add('open'); }
+  };
+  draw();
+}
+
+// --- B: command palette ----------------------------------------------------------------
+function viewB(el, mix = false) {
+  let q = '', sel = 0, shown = [];
+  el.innerHTML = `<div class="popup palette">${bar}<div class="search"><span class="muted">›</span><input placeholder="${mix ? 'Search everything · ↵ fills' : 'Type to search · ↵ fills'}" autofocus>${mix ? '<button class="ghost" title="Settings">⚙</button><button class="ghost" title="Lock">🔒</button>' : '<span class="tag">this site</span>'}</div><div class="scroll list"></div><div class="foot"><span><span class="kbd">↑↓</span> move</span><span><span class="kbd">↵</span> fill</span><span><span class="kbd">⌘C</span> pass</span><span><span class="kbd">⌘U</span> user</span><span><span class="kbd">⌘T</span> code</span><span><span class="kbd">→</span> details</span></div><div class="status"><span class="count"></span><span>synced 2 min ago · live</span></div><div class="detail"></div><div class="toast"></div></div>
+  <div class="note"><h3>${mix ? 'A+B · Recommended mix' : 'B · Command palette'}</h3>${mix
+    ? 'B\'s speed with A\'s look: one ranked list across every type (this site first, then recent, then everything), real icons, Enter fills, → or click opens details. No type tabs: type <b>card</b>, <b>id</b> or <b>note</b> to narrow.'
+    : 'Keyboard first, like Spotlight or Raycast. One list mixing every type, this site\'s logins first. Enter does the obvious thing; shortcuts copy.'}<ul><li>Try typing <b>git</b>, <b>card</b>, <b>ama</b></li><li>↑ ↓ to move, Enter to fill, → for details</li><li>Fewest buttons; fastest</li></ul></div>`;
+  const pop = el.querySelector('.popup'), list = el.querySelector('.list'), input = el.querySelector('input'), det = el.querySelector('.detail');
+  const kindFilter = (q) => { const m = q.match(/^(card|cards|id|identity|identities|note|notes|login|logins)\b\s*/i); return m ? [{ card:'card', cards:'card', id:'identity', identity:'identity', identities:'identity', note:'note', notes:'note', login:'login', logins:'login' }[m[1].toLowerCase()], q.slice(m[0].length)] : [null, q]; };
+  const draw = () => {
+    const [kind, rest] = kindFilter(q);
+    shown = items.filter((i) => (!kind || i.t === kind) && match(i, rest)).sort((a, b) => (here(b) - here(a)) || ((b.recent || 0) - (a.recent || 0)));
+    if (!q) shown = shown.filter((i) => here(i) || i.recent);
+    sel = Math.min(sel, Math.max(0, shown.length - 1));
+    list.innerHTML = shown.map((i, n) => `<div class="row ${n === sel ? 'sel' : ''}" data-n="${items.indexOf(i)}" data-i="${n}">${mix ? ico(i) : ''}<div class="txt"><div>${mix ? `${i.name}` : `<b>${i.name}</b> <span class="muted">· ${sub(i)}</span>`}</div>${mix ? `<div class="muted small">${sub(i)}</div>` : ''}</div>${here(i) ? '<span class="tag">this site</span>' : mix || i.t === 'login' ? '' : `<span class="tag">${i.t}</span>`}<span class="hint kbd">↵ ${verb(i)}</span></div>`).join('') || `<div class="empty" style="padding:40px;text-align:center">No matches</div>`;
+    el.querySelector('.count').textContent = q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : `For ${SITE} and recent · type to search all`;
+    list.querySelector('.sel')?.scrollIntoView({ block:'nearest' });
+  };
+  const open = (i) => { det._item = i; det.innerHTML = detailHtml(i); det.classList.add('open'); };
+  input.oninput = () => { q = input.value; sel = 0; draw(); };
+  input.onkeydown = (e) => {
+    const i = shown[sel];
+    if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, shown.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter' && i) toast(pop, i.t === 'note' ? `Opened ${i.name}` : `Filled ${i.name}`);
+    else if (e.key === 'ArrowRight' && i && input.selectionStart === input.value.length) open(i);
+    else if ((e.metaKey || e.ctrlKey) && i && /^[cut]$/i.test(e.key)) { e.preventDefault(); toast(pop, `Copied ${{ c:'password', u:'username', t:'one-time code' }[e.key.toLowerCase()]} for ${i.name}`); }
+  };
+  pop.onclick = (e) => {
+    const t = e.target.closest('[data-act],[data-n]');
+    if (!t) return;
+    if (t.dataset.act === 'back') { det.classList.remove('open'); return input.focus(); }
+    if (t.dataset.act === 'fill') return toast(pop, `Filled ${det._item.name}`);
+    if (t.dataset.act === 'copy') return toast(pop, `Copied ${t.dataset.what}`);
+    if (t.dataset.act === 'edit') return toast(pop, 'Edit form');
+    if (t.dataset.n) { sel = +t.dataset.i; draw(); open(items[t.dataset.n]); }
+  };
+  draw();
+  setTimeout(() => input.focus(), 50);
+}
+
+// --- C: two-pane ------------------------------------------------------------------------
+function viewC(el) {
+  let tab = 'login', q = '', cur = items[0];
+  el.innerHTML = `<div class="popup wide">${bar}<div class="two"><div class="left"><div class="search"><span class="muted">⌕</span><input placeholder="Search"></div><div class="nav"></div><div class="scroll list"></div></div><div class="right"></div></div><div class="toast"></div></div>
+  <div class="note"><h3>C · Two-pane</h3>Desktop-app style in a bigger popup (about 660 px). List on the left, everything about the selected item on the right, always visible.<ul><li>Best for browsing and editing</li><li>Heavier for quick fill-and-go</li><li>Adds Favorites (Bitwarden already stores them)</li></ul></div>`;
+  const pop = el.querySelector('.popup');
+  const draw = () => {
+    const counts = Object.fromEntries(Object.keys(KINDS).map((k) => [k, items.filter((i) => k === 'all' || i.t === k).length]));
+    el.querySelector('.nav').innerHTML = `<div data-tab="fav" class="${tab === 'fav' ? 'on' : ''}"><span>★ Favorites</span><span class="muted">${items.filter((i) => i.fav).length}</span></div>` + Object.entries(KINDS).filter(([k]) => k !== 'all').map(([k, v]) => `<div data-tab="${k}" class="${k === tab ? 'on' : ''}"><span>${v}</span><span class="muted">${counts[k]}</span></div>`).join('');
+    const shown = items.filter((i) => (tab === 'fav' ? i.fav : i.t === tab) && match(i, q)).sort((a, b) => here(b) - here(a));
+    el.querySelector('.list').innerHTML = shown.map((i) => `<div class="row ${i === cur ? 'sel' : ''}" data-n="${items.indexOf(i)}">${ico(i)}<div class="txt"><div>${i.name}</div><div class="muted small">${sub(i)}</div></div></div>`).join('');
+    el.querySelector('.right').innerHTML = cur ? detailHtml(cur).replace('data-act="back"', 'style="display:none"') : '<div class="empty">Select an item</div>';
+  };
+  el.querySelector('input').oninput = (e) => { q = e.target.value; draw(); };
+  pop.onclick = (e) => {
+    const t = e.target.closest('[data-tab],[data-act],[data-n]');
+    if (!t) return;
+    if (t.dataset.tab) { tab = t.dataset.tab; return draw(); }
+    if (t.dataset.act === 'fill') return toast(pop, `Filled ${cur.name}`);
+    if (t.dataset.act === 'copy') return toast(pop, `Copied ${t.dataset.what}`);
+    if (t.dataset.act === 'edit') return toast(pop, 'Edit form');
+    if (t.dataset.n) { cur = items[t.dataset.n]; draw(); }
+  };
+  draw();
+}
+
+// --- E: one-click ------------------------------------------------------------------------
+let heroStyle = 'pills';
+const HERO_STYLES = { boxes:'Boxes (current)', pills:'Pills', rows:'Rows', segmented:'Segmented', inline:'Inline icons' };
+function heroHtml(best, c, left) {
+  const ring = `<span class="ring" style="--p:${left / 30 * 100}"></span>`;
+  if (best.t !== 'login') { // cards, identities, notes: the same expanded card with their own one-click actions
+    const head = `<div class="head">${ico(best)}<div style="flex:1;min-width:0"><b>${best.name}</b><div class="muted small">${sub(best)}</div></div>${best.t === 'note' ? '<button class="fill" data-act="open">Open</button>' : '<button class="fill" data-act="fill">Fill</button>'}</div>`;
+    const btns = best.t === 'card' ? `<button data-copy="number" data-done="✓ Copied">▭ Number</button><button data-copy="code" data-done="✓ Copied">Security code</button><button data-copy="expiry" data-done="✓ Copied">${best.exp}</button>`
+      : best.t === 'identity' ? `<button data-copy="email" data-done="✓ Copied">✉ Email</button><button data-copy="address" data-done="✓ Copied">⌂ Address</button><button data-copy="phone" data-done="✓ Copied">☏ Phone</button>`
+      : `<button data-copy="note" data-done="✓ Copied">⧉ Copy note</button>`;
+    return head + `<div class="seg">${btns}</div>`;
+  }
+  const head = (extra = '') => `<div class="head">${ico(best)}<div style="flex:1;min-width:0"><b>${best.name}</b>${heroStyle === 'pills' || heroStyle === 'segmented' || heroStyle === 'inline' ? `<div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${best.user}</div>` : ''}</div>${extra}<button class="fill" data-act="fill">Fill</button></div>`;
+  if (heroStyle === 'boxes') return head() + `<div class="chips"><button class="chip" data-copy="username" title="Copy username"><span><span class="k">user</span>${best.user}</span></button><button class="chip mono" data-copy="password" title="Copy password"><span><span class="k">password</span>••••••••</span></button>${best.totp ? `<button class="chip mono" data-copy="code" title="Copy one-time code">${ring}<span><span class="k">code</span><span class="otp">${c}</span></span></button>` : ''}</div>`;
+  if (heroStyle === 'pills') return head() + `<div class="pills"><button class="pill" data-copy="username" data-done="✓ Username copied" title="Copy username">👤 Username</button><button class="pill" data-copy="password" data-done="✓ Password copied" title="Copy password">🔑 Password</button>${best.totp ? `<button class="pill" data-copy="code" data-done="✓ Code copied" title="Copy one-time code">${ring}<span class="mono otp">${c}</span></button>` : ''}</div>`;
+  if (heroStyle === 'rows') return head() + `<div class="vrows"><div class="vrow" data-copy="username" data-done="Copied ✓" title="Copy username"><span class="g">👤</span><span class="v">${best.user}</span><span class="cp">Copy</span></div><div class="vrow" data-copy="password" data-done="Copied ✓" title="Copy password"><span class="g">🔑</span><span class="v mono">••••••••••</span><span class="cp">Copy</span></div>${best.totp ? `<div class="vrow" data-copy="code" data-done="Copied ✓" title="Copy one-time code"><span class="g">${ring}</span><span class="v mono otp">${c}</span><span class="cp">Copy</span></div>` : ''}</div>`;
+  if (heroStyle === 'segmented') return head() + `<div class="seg"><button data-copy="username" data-done="✓ Copied" title="Copy username">👤 User</button><button data-copy="password" data-done="✓ Copied" title="Copy password">🔑 Password</button>${best.totp ? `<button data-copy="code" data-done="✓ Copied" title="Copy one-time code">${ring}<span class="mono otp">${c}</span></button>` : ''}</div>`;
+  return head(`<span class="inl"><button data-copy="username" data-done="✓" title="Copy username">👤</button><button data-copy="password" data-done="✓" title="Copy password">🔑</button>${best.totp ? `<button data-copy="code" data-done="✓" title="Copy one-time code">${ring}<span class="mono otp">${c}</span></button>` : ''}</span>`);
+}
+function viewE(el) {
+  let q = '', selected = null; // the selected item is the expanded one; null = this site's best match
+  el.innerHTML = `<div class="popup">${bar}<div class="search"><span class="muted">⌕</span><input placeholder="Search Ward"><button class="ghost" title="Settings">⚙</button><button class="ghost" title="Lock">🔒</button></div><div class="scroll list"></div><div class="detail"></div><div class="toast"></div></div>
+  <div class="note"><h3>E · One-click</h3><p><b>Rule:</b> the selected item is expanded. Ward opens with this site's best match selected; click any other row to expand it instead (the old one shrinks). Hover a compact row for one-click copy and Fill.</p><div><b>This site's card, copy style:</b></div><div class="styles">${Object.entries(HERO_STYLES).map(([k, v]) => `<button data-style="${k}" class="${k === heroStyle ? 'on' : ''}">${v}</button>`).join('')}</div>On the expanded card, each button copies one thing and confirms in place. Compact rows stay quiet until you hover: then 👤 🔑 ⏱ and Fill appear in fixed positions.<ul><li>Click a row = select it (it expands; nothing is filled)</li><li>Fill = the button on the expanded card, or Fill on a hovered row</li><li>No pop-ups: feedback is where you clicked</li></ul></div>`;
+  const pop = el.querySelector('.popup'), list = el.querySelector('.list'), det = el.querySelector('.detail');
+  const flash = (btn, label) => { const old = btn.innerHTML; btn.classList.add('done'); btn.innerHTML = label; setTimeout(() => { btn.classList.remove('done'); btn.innerHTML = old; }, 1100); };
+  const icons = (i) => i.t !== 'login' ? '' : `<span class="ic"><button data-copy="username" title="Copy username for ${i.name}">👤</button><button data-copy="password" title="Copy password for ${i.name}">🔑</button>${i.totp ? `<button data-copy="code" title="Copy one-time code for ${i.name}">⏱</button>` : '<span class="slot"></span>'}<button class="fill quiet" data-act="fill" title="Fill ${i.name}" style="width:auto;height:26px;padding:0 9px;font-size:12px">Fill</button></span>`;
+  const draw = () => {
+    const shown = items.filter((i) => match(i, q));
+    const site = shown.filter(here), others = shown.filter((i) => !here(i) && (q || i.recent));
+    const open = selected && shown.includes(selected) ? selected : site[0] || null;
+    const [c, left] = code();
+    const row = (i) => i === open
+      ? `<div class="hero" data-n="${items.indexOf(i)}">${heroHtml(i, c, left)}</div>`
+      : `<div class="row" data-n="${items.indexOf(i)}" title="Select ${i.name}">${ico(i)}<div class="txt"><div>${i.name}</div><div class="muted small">${sub(i)}</div></div>${icons(i)}</div>`;
+    list.innerHTML = (site.length ? `<div class="sec">For ${SITE}</div>` + site.map(row).join('') : '')
+      + (others.length ? `<div class="sec">${q ? 'Matches' : 'Recent'}</div>` + others.map(row).join('') : '');
+  };
+  el.querySelector('input').oninput = (e) => { q = e.target.value; draw(); };
+  el.querySelector('.styles').onclick = (e) => {
+    const b = e.target.closest('[data-style]');
+    if (!b) return;
+    heroStyle = b.dataset.style;
+    el.querySelectorAll('[data-style]').forEach((x) => x.classList.toggle('on', x === b));
+    draw();
+  };
+  pop.onclick = (e) => {
+    const cp = e.target.closest('[data-copy]');
+    if (cp) { e.stopPropagation(); if (cp.classList.contains('vrow')) { cp.classList.add('done'); const c2 = cp.querySelector('.cp'); c2.textContent = 'Copied ✓'; return setTimeout(() => { cp.classList.remove('done'); c2.textContent = 'Copy'; }, 1100); } return flash(cp, cp.classList.contains('chip') ? `<span><span class="k">${cp.dataset.copy}</span>✓ Copied</span>` : cp.dataset.done || '✓'); }
+    const t = e.target.closest('[data-act],[data-n]');
+    if (!t) return;
+    if (t.dataset.act === 'back') return det.classList.remove('open');
+    if (t.dataset.act === 'copy') return toast(pop, `Copied ${t.dataset.what}`);
+    const it = items[t.closest('[data-n]')?.dataset.n] || det._item;
+    if (t.dataset.act === 'fill') return toast(pop, `Filled ${it.name}`);
+    if (t.dataset.act === 'open') { det._item = it; det.innerHTML = detailHtml(it); return det.classList.add('open'); }
+    if (it && t.classList.contains('row')) { selected = it; draw(); } // select = expand
+  };
+  draw();
+  setInterval(() => { const [, left] = code(); el.querySelectorAll('.ring').forEach((r) => r.style.setProperty('--p', left / 30 * 100)); }, 1000);
+}
+
+const stage = document.getElementById('stage');
+const views = { A: viewA, B: (el) => viewB(el, false), C: viewC, D: (el) => viewB(el, true), E: viewE };
+function show(v) {
+  document.querySelectorAll('[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  stage.innerHTML = '';
+  views[v](stage);
+}
+document.querySelectorAll('[data-v]').forEach((b) => (b.onclick = () => show(b.dataset.v)));
+const themeBtn = document.getElementById('theme');
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+if (dark) document.documentElement.classList.add('dark');
+themeBtn.textContent = dark ? 'Light' : 'Dark';
+themeBtn.onclick = () => { const d = document.documentElement.classList.toggle('dark'); themeBtn.textContent = d ? 'Light' : 'Dark'; };
+setInterval(() => document.querySelectorAll('.otp').forEach((o) => (o.textContent = code()[0])), 1000);
+show('E');
+</script>
+</body>
+</html>

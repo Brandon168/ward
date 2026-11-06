@@ -73,6 +73,10 @@ node scripts/guard.mjs              # security guard rails
 ./pack.sh                           # dist/ward-<version>.zip
 ```
 
+UI preview: `node scripts/preview.mjs` writes `preview/ward-popup.html` (git-ignored), the real popup with sample data
+in one self-contained file. Open it in any browser, or in Paseo's Files panel > Preview. Rerun it after each UI change.
+Only that generated copy fakes the extension APIs and drops the popup's refusal to run in a frame.
+
 ## Upstream
 
 Ward is built on [BW Lite](https://github.com/yowmamasita/bw-lite) by Ben Adrian Sarmiento (MIT), seeded from

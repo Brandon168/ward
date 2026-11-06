@@ -3,3 +3,4 @@ dist/
 *.crx
 node_modules/
 .DS_Store
+preview/
