@@ -146,7 +146,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'neverSave', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -787,6 +787,44 @@ function vaultView() {
     id: 'sync', className: 'quiet', title: `Sync now (Ctrl+S)${ago == null ? '' : ` · last synced ${ago < 1 ? 'just now' : ago < 120 ? `${ago} min ago` : `${Math.round(ago / 60)} h ago`}`}`,
     onclick: () => ((syncBtn.textContent = 'syncing…'), run(syncBtn, document.getElementById('status'), syncAll).finally(() => (syncBtn.textContent = 'sync'))),
   }, 'sync');
+  const stillLocked = locked().length;
+  const theme = themeButton();
+  theme.className = 'quiet';
+  app.replaceChildren(
+    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward'),
+      h('nav', {}, quiet('new', 'Add an item of the type shown', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
+    kinds, h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
+    h('footer', {},
+      h('span', {}, stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`)),
+      h('span', {},
+        h('button', { className: 'link', title: 'Saving, locking and Touch ID', onclick: settingsView }, 'Settings'),
+        h('button', { className: 'link', onclick: accountsView }, multi ? `Vaults (${accounts.length})` : 'Vaults'))));
+  // A checkout-looking page with no logins opens on Cards.
+  if (!kindPicked && kind === 1 && formPage && /checkout|payment|billing|\/pay\b|\/cart|\/order/i.test(new URL(pageUrl).pathname)
+    && !bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used).length && vault.some((i) => typeOf(i) === 3)) kind = 3;
+  kindPicked = true;
+  draw();
+  q.focus();
+}
+
+// Ward: Settings. Saving offers (logins; cards and addresses), sites never offered, locking, Touch ID.
+function settingsView() {
+  if (mode === 'save') return closeSave();
+  const toggle = (key, label, title) => {
+    const box = h('input', { type: 'checkbox', checked: st[key] !== false, onchange: () => local.set({ [key]: (st[key] = box.checked) }) });
+    return h('label', { className: 'check', title }, box, label);
+  };
+  const neverList = h('div', { className: 'list' });
+  const drawNever = () => {
+    const hosts = Array.isArray(st.neverSave) ? st.neverSave : [];
+    neverList.replaceChildren(...(hosts.length ? hosts.map((host) => h('div', { className: 'row' }, h('div', { className: 'info' }, h('span', {}, host)),
+      h('div', { className: 'actions' }, h('button', { className: 'quiet', title: `Offer to save on ${host} again`, onclick: async () => {
+        st.neverSave = hosts.filter((x) => x !== host);
+        await local.set({ neverSave: st.neverSave });
+        drawNever();
+      } }, 'remove')))) : [h('p', { className: 'muted' }, 'None.')]));
+  };
+  drawNever();
   const neverLock = h('input', {
     type: 'checkbox', checked: !!st.neverLock,
     onchange: async () => {
@@ -810,27 +848,15 @@ function vaultView() {
     onchange: () => local.set({ autoLock: (st.autoLock = Number(autoLock.value)) }),
   }, AUTO_LOCK_CHOICES.map((m) => h('option', { value: String(m), selected: m === autoLockMinutes(st.autoLock) }, lockLabel(m))));
   neverLock.addEventListener('change', () => (autoLock.disabled = neverLock.checked));
-  const stillLocked = locked().length;
-  const theme = themeButton();
-  theme.className = 'quiet';
-  app.replaceChildren(
-    h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward'),
-      h('nav', {}, quiet('new', 'Add an item of the type shown', () => editView(null)), syncBtn, quiet('lock', 'Lock all vaults', lockAll), theme)),
-    kinds, h('header', {}, q), context, list, h('p', { id: 'status', className: 'err' }),
-    h('footer', {},
-      h('span', { className: 'locks' },
-        h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
-        autoLock),
-      h('span', {},
-        stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`),
-        h('button', { className: 'link', title: 'Touch ID unlock (experimental)', onclick: touchSettingsView }, 'Touch ID'),
-        h('button', { className: 'link', onclick: accountsView }, multi ? `Vaults (${accounts.length})` : 'Vaults'))));
-  // A checkout-looking page with no logins opens on Cards.
-  if (!kindPicked && kind === 1 && formPage && /checkout|payment|billing|\/pay\b|\/cart|\/order/i.test(new URL(pageUrl).pathname)
-    && !bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used).length && vault.some((i) => typeOf(i) === 3)) kind = 3;
-  kindPicked = true;
-  draw();
-  q.focus();
+  app.replaceChildren(title('Settings'),
+    h('h2', {}, 'Saving'),
+    toggle('offerLogins', 'Offer to save new and changed logins', 'After you sign in with a password Ward does not have yet'),
+    toggle('offerForms', 'Offer to save cards and addresses', 'After you submit a checkout or address form with a card or address you typed. Off: Ward does not watch card or address fields at all.'),
+    h('p', { className: 'muted' }, 'Never offered on these sites:'), neverList,
+    h('h2', {}, 'Locking'),
+    h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
+    autoLock,
+    h('div', { className: 'inline' }, h('button', { title: 'Touch ID unlock (experimental)', onclick: touchSettingsView }, 'Touch ID…'), h('button', { className: 'primary', onclick: vaultView }, 'Done')));
 }
 
 const genPassword = () => {
@@ -1011,7 +1037,7 @@ function touchSettingsView() {
     h('div', { className: 'inline' },
       h('button', { className: 'primary', disabled: !unlocked().length, onclick: () => openTouch('enroll') }, rec ? 'Set up again' : 'Set up Touch ID'),
       rec && remove,
-      h('button', { onclick: vaultView }, 'Done')),
+      h('button', { onclick: settingsView }, 'Back')),
     err);
 }
 

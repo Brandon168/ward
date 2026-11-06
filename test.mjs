@@ -564,7 +564,28 @@ assert.equal((await sendRuntime({ bwliteSaveOpen: subKey }, { tab: { id: 7 }, fr
   const plain = { tab: { id: 9, url: 'http://shop.example/checkout' }, url: 'http://shop.example/checkout', frameId: 0 };
   await sendRuntime({ wardDraft: { card: { number: '4111111111111111' }, identity: {}, submit: true } }, plain);
   assert.equal(sessionStore.data.has('draft:9'), false, 'nothing is collected on http pages');
-  await sessionStore.remove(['w:key', 'w:list', 'draft:9']);
+  // Settings: card/address offers off means no watching, no drafts, no offers
+  const injected = [];
+  const realExec = chrome.scripting.executeScript;
+  chrome.scripting.executeScript = async (x) => (injected.push(x), []);
+  await sendRuntime({ wardWatch: true }, { ...top, documentId: 'doc-on' });
+  assert.equal(injected.length, 2, 'with offers on, a watched frame gets formfill.js and wardWatch');
+  await localStore.set({ offerForms: false });
+  await sendRuntime({ wardWatch: true }, { ...top, documentId: 'doc-off' });
+  assert.equal(injected.length, 2, 'with offers off, nothing is injected into the page');
+  await sendRuntime({ wardDraft: { card: { number: '4111111111111111' }, identity: {}, submit: true } }, top);
+  assert.equal(sessionStore.data.has('draft:9'), false, 'and nothing is collected');
+  chrome.scripting.executeScript = realExec;
+  await localStore.set({ offerForms: true });
+  // logins: offers off means a submitted password is not kept for an offer
+  await sessionStore.set({ 'w:list': JSON.stringify([]) });
+  await localStore.set({ offerLogins: false });
+  await sendRuntime({ bwliteSubmit: { username: 'ann', password: 'pw' } }, { tab: { id: 12 }, url: 'https://site.example/login' });
+  assert.equal(sessionStore.data.has('pending:12'), false, 'login offers off: nothing pending');
+  await localStore.set({ offerLogins: true });
+  await sendRuntime({ bwliteSubmit: { username: 'ann', password: 'pw' } }, { tab: { id: 12 }, url: 'https://site.example/login' });
+  assert.ok(sessionStore.data.get('pending:12')?.offer, 'login offers on: offered as before');
+  await sessionStore.remove(['w:key', 'w:list', 'draft:9', 'pending:12']);
   await localStore.set({ accounts: [] });
 }
 console.log('background cache, write, RP, and save-scope checks ok');
@@ -576,7 +597,7 @@ const popupSource = await readFile('./popup.js', 'utf8');
 const popupProgram = popupSource
   .replace(/^import[^\n]*\n/gm, '')
   .replace(/\nstart\(\)\.catch\([\s\S]*\);\s*$/, '\n')
-  + `\nthis.__popup = { start, move, adoptAccounts, closeSave, loginView, getAccounts: () => accounts, getPk: () => pk, getSv: () => sv, getApp: () => app };\n`;
+  + `\nthis.__popup = { start, move, adoptAccounts, closeSave, loginView, settingsView, getAccounts: () => accounts, getPk: () => pk, getSv: () => sv, getApp: () => app };\n`;
 
 function popupStorage(name, initial, notify) {
   const data = new Map(Object.entries(initial || {}));
@@ -833,6 +854,26 @@ assert.equal(expirySave.app.children.length, 0, 'expired save UI is cleared');
   assert.equal(saves[0].name, 'Visa 1111');
   assert.equal(saves[1].type, 4);
   assert.equal(saves[1].name, 'Ann Lee');
+}
+
+{ // Ward: Settings switches save to local storage; the never-offer list can be edited
+  const sp = makePopup('', { local: { accounts: [popupAccount('set')], neverSave: ['a.example', 'b.example'] },
+    session: { 'set:key': popupKey, 'set:list': JSON.stringify(popupList('set')) } });
+  await sp.api.start();
+  sp.api.settingsView();
+  const boxes = (node) => (node?.tagName === 'INPUT' && node.type === 'checkbox' ? [node] : []).concat(...(node?.children || []).map(boxes));
+  const [logins, forms] = boxes(sp.app);
+  assert.deepEqual([logins.checked, forms.checked], [true, true], 'both offers are on by default');
+  forms.checked = false;
+  await forms.listeners.change();
+  assert.equal((await sp.local.get('offerForms')).offerForms, false);
+  logins.checked = false;
+  await logins.listeners.change();
+  assert.equal((await sp.local.get('offerLogins')).offerLogins, false);
+  assert.match(textOf(sp.app), /a\.example/);
+  const removeA = (function find(n) { return n?.title === 'Offer to save on a.example again' ? n : (n?.children || []).reduce((f, c) => f || find(c), null); })(sp.app);
+  await removeA.onclick();
+  assert.deepEqual((await sp.local.get('neverSave')).neverSave, ['b.example']);
 }
 
 const framedSave = makePopup('#save=framed', {

@@ -21,7 +21,7 @@ async function vault() {
 }
 async function build() {
   const version = stateVersion;
-  const stored = await local.get(['accounts', 'used', 'neverSave']);
+  const stored = await local.get(['accounts', 'used', 'neverSave', 'offerLogins', 'offerForms']);
   const seen = new Set();
   const accounts = Array.isArray(stored.accounts) ? stored.accounts.filter((a) => accountId(a?.id) && !seen.has(a.id) && seen.add(a.id)) : [];
   const used = stored.used && typeof stored.used === 'object' ? stored.used : {};
@@ -92,7 +92,9 @@ async function build() {
   const rank = (id) => accounts.findIndex((a) => a.id === id);
   if (version !== stateVersion) return build();
   const equiv = new Map(accounts.map((a) => [a.id, bw.equivalents(eq[`${a.id}:eq`])]))
-  return (state = { accounts, used, neverSave, items, open, equiv, rank });
+  // Ward settings: both save offers are on unless turned off in the popup's Settings
+  const offerLogins = stored.offerLogins !== false, offerForms = stored.offerForms !== false;
+  return (state = { accounts, used, neverSave, offerLogins, offerForms, items, open, equiv, rank });
 }
 const forSite = (v, url) => bw.forSite(v.items, url, (i) => v.equiv.get(i.a), v.rank, v.used);
 const markUsed = (i, version = null) => {
@@ -195,7 +197,7 @@ async function submitted(tabId, url, credentials) {
   username ||= prev?.username || '';
   const version = stateVersion;
   const v = await vault();
-  if (version !== stateVersion || !v.open || v.neverSave.includes(new URL(url).hostname)) return session.remove(key);
+  if (version !== stateVersion || !v.open || !v.offerLogins || v.neverSave.includes(new URL(url).hostname)) return session.remove(key);
   const logins = forSite(v, url);
   const lower = username.toLowerCase();
   const same = username ? logins.filter((i) => i.username.toLowerCase() === lower) : logins.length === 1 ? logins : [];
@@ -243,7 +245,8 @@ async function watchFrame(sender) {
   const key = sender.documentId || `${sender.tab.id}:${sender.frameId}`;
   if (watched.has(key)) return null;
   if (!formFrameAllowed('card', sender.tab.url, sender.url) && !formFrameAllowed('identity', sender.tab.url, sender.url)) return null;
-  if (!(await vault()).open) return null; // nothing to save into
+  const v = await vault();
+  if (!v.open || !v.offerForms) return null; // nothing to save into, or card/address offers are off: don't even watch
   watched.add(key);
   const target = sender.documentId ? { tabId: sender.tab.id, documentIds: [sender.documentId] } : { tabId: sender.tab.id, frameIds: [sender.frameId] };
   await chrome.scripting.executeScript({ target, files: ['formfill.js'] }).catch(() => {});
@@ -253,6 +256,7 @@ async function watchFrame(sender) {
 
 async function draftFrom(sender, d) {
   const tabId = sender.tab?.id;
+  if (!(await vault()).offerForms) return;
   if (!Number.isInteger(tabId) || !d || typeof d !== 'object' || !https(sender.tab.url) || !https(sender.url)) return;
   const top = new URL(sender.tab.url), key = `draft:${tabId}`;
   const { [key]: old } = await session.get(key);
@@ -277,7 +281,7 @@ async function offerDraft(tabId, tab) {
   await session.remove(key); // offered once, or dropped
   const version = stateVersion;
   const v = await vault();
-  if (version !== stateVersion || !v.open || v.neverSave.includes(new URL(d.origin).hostname)) return;
+  if (version !== stateVersion || !v.open || !v.offerForms || v.neverSave.includes(new URL(d.origin).hostname)) return;
   const number = (d.card.number || '').replace(/\D/g, '');
   const card = luhn(number) && !v.items.some((i) => i.type === 3 && (i.card?.number || '').replace(/\D/g, '') === number)
     ? { ...d.card, number, brand: bw.cardBrand(number) } : null;

@@ -69,3 +69,6 @@ nav.kinds button:hover { color: var(--fg); }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .checks { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
 .checks label.check { white-space: normal; }
+main h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+main > label.check { display: block; margin: 0 0 6px; }
+main > select { margin: 0 0 10px; }

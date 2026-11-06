@@ -28,9 +28,9 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
 5. **Offline**: turn Wi-Fi off, lock (lock button), unlock with the master password, fill. Turn Wi-Fi back on.
 6. **Live sync**: with Ward unlocked, change a password for a login on your phone or in the web vault.
    Within a few seconds the popup (reopened) shows the new password, without pressing sync.
-7. **Auto-lock**: footer setting, try "5 min idle", then lock the Mac screen (Ctrl+Cmd+Q): Ward should be locked
+7. **Auto-lock**: Settings (popup footer) → Locking, try "5 min idle", then lock the Mac screen (Ctrl+Cmd+Q): Ward should be locked
    when you come back.
-8. **Touch ID (experimental)**: footer → Touch ID → Set up Touch ID. A small window opens and asks for Touch ID
+8. **Touch ID (experimental)**: Settings → Touch ID… → Set up Touch ID. A small window opens and asks for Touch ID
    (maybe twice). Then lock and use **Unlock with Touch ID**.
    - If it fails, press **Copy report** and paste the report back to the assistant: it says whether Vivaldi
      supports WebAuthn PRF for extensions, which decides between this approach and a small native helper.
@@ -48,6 +48,9 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
       ticked, security code unticked → Save. They appear under Cards / Identities.
     - Submitting the same card/address again offers nothing. Values a page fills in by itself are never offered.
     - **from page** (Cards/Identities tab, on a page with the form filled in) opens a pre-filled new item to review.
+12. **Settings → Saving**: turn off "Offer to save cards and addresses" and repeat 11: no bar appears. Turn off
+    "Offer to save new and changed logins" and sign in somewhere new: no bar. Sites you pressed **Never** on are
+    listed there and can be removed.
 
 ## What's not there yet
 

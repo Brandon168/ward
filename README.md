@@ -39,6 +39,8 @@ Loading from a specific commit means nothing changes until you pull and reload o
   Only values you typed count (a page can't plant them), https pages only, card fields from the site or known
   payment-provider frames, drafts kept in memory-only session storage. **from page** on the Cards/Identities tab
   reads the current form into a new item for you to review.
+- Settings (popup footer): turn login offers and card/address offers on or off (off: card/address fields aren't
+  watched at all), edit the never-offer site list, auto-lock, Never lock, Touch ID.
 
 ## Security model
 
