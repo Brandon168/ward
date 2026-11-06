@@ -57,3 +57,8 @@ button.danger { margin-left: auto; color: var(--err); border-color: var(--err); 
 button.danger:hover:not(:disabled) { background: var(--err); border-color: var(--err); color: var(--bg); }
 .info .totp { padding: 0; }
 select { padding-right: 22px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: right 12px center, right 8px center; background-size: 4px 4px; background-repeat: no-repeat; }
+/* Ward */
+button.touch { display: block; width: 100%; margin: 0 0 12px; }
+.touchlog { white-space: pre-wrap; font-size: 11px; color: var(--muted); max-height: 160px; overflow: auto; margin: 0 0 8px; }
+footer .locks { display: flex; flex-direction: column; gap: 4px; }
+footer .locks select { width: auto; max-width: 210px; padding: 2px 22px 2px 4px; font-size: 11px; }

@@ -1,5 +1,6 @@
 import * as bw from './bw.js';
 import { fillTab } from './autofill.js';
+import * as touch from './touch.js';
 import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
 
 const app = document.getElementById('app');
@@ -137,7 +138,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -190,6 +191,7 @@ async function start() {
       adoptAccounts(clean);
     }
   });
+  if (mode === 'touch') return touchView(modeKey);
   // The save offer is a tiny extension-owned window. It must never fall
   // through to the full login/unlock/vault views when its account closed.
   if (mode === 'save' && (!accounts.length || !unlocked().length)) return closeSave();
@@ -418,6 +420,7 @@ function unlockView() {
         const opened = await Promise.all(todo.map((a) =>
           bw.unlock(pw.value, a.email, a.kdf, a.protectedKey).then((k) => setKey(a, k)).then(() => true, (e) => e)));
         if (!opened.includes(true)) throw new Error([...new Set(opened.map((e) => e?.message || String(e)))].join('\n'));
+        if (st.touchUnlock) await local.set({ touchUnlock: (st.touchUnlock = { ...st.touchUnlock, passwordAt: Date.now() }) });
         const problems = await loadVaults();
         vaultView();
         if (problems) status(problems);
@@ -428,7 +431,10 @@ function unlockView() {
     field(`Master password${todo.length > 1 ? ' (tried on every locked vault)' : ''}`, pw),
     h('p', { className: 'muted' }, `Locked: ${todo.map((a) => a.label).join(', ')}`),
     h('div', { className: 'inline' }, btn, unlocked().length && h('button', { type: 'button', onclick: vaultView }, 'Skip')), err);
-  app.replaceChildren(title('Ward'), form, h('button', { className: 'link', onclick: accountsView }, 'Vaults'));
+  const touchIds = Object.keys(st.touchUnlock?.wrapped || {});
+  const touchBtn = todo.some((a) => touchIds.includes(a.id))
+    && h('button', { className: 'primary touch', title: 'Opens a small window for the Touch ID prompt', onclick: () => openTouch('unlock') }, 'Unlock with Touch ID');
+  app.replaceChildren(title('Ward'), touchBtn || '', form, h('button', { className: 'link', onclick: accountsView }, 'Vaults'));
   pw.focus();
 }
 
@@ -486,6 +492,13 @@ async function removeAccount(a) {
       await local.remove([`${p}index`, `${p}index2`, `${p}index3`, `${p}index4`, `${p}eq`, `${p}ids`, `${p}profile`, ...ids.map((id) => `${p}c:${id}`)]);
     } finally {
       await session.remove([`${p}key`, `${p}list`]);
+    }
+    const { touchUnlock } = await local.get('touchUnlock');
+    if (touchUnlock?.wrapped?.[a.id]) {
+      const wrapped = { ...touchUnlock.wrapped };
+      delete wrapped[a.id];
+      if (Object.keys(wrapped).length) await local.set({ touchUnlock: (st.touchUnlock = { ...touchUnlock, wrapped }) });
+      else await local.remove('touchUnlock'), (st.touchUnlock = undefined);
     }
     const { used = {} } = await local.get('used');
     await local.set({ used: Object.fromEntries(Object.entries(used || {}).filter(([k]) => !k.startsWith(`${a.id}:`))) });
@@ -750,6 +763,7 @@ function vaultView() {
         autoLock),
       h('span', {},
         stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`),
+        h('button', { className: 'link', title: 'Touch ID unlock (experimental)', onclick: touchSettingsView }, 'Touch ID'),
         h('button', { className: 'link', onclick: accountsView }, multi ? `Vaults (${accounts.length})` : 'Vaults'))));
   draw();
   q.focus();
@@ -820,6 +834,96 @@ function closeSave() {
   } else if (mode === 'save') window.close();
 }
 
+// --- Touch ID unlock (Ward, experimental) -------------------------------------------------------------------
+// WebAuthn runs in its own small window: the toolbar popup closes as soon as the system prompt takes focus.
+async function openTouch(kind) {
+  await chrome.windows.create({ url: `popup.html#touch=${kind}`, type: 'popup', width: 420, height: 330, focused: true });
+  window.close();
+}
+
+// Does this key open the vault? The profile's private key and the cached list are both MAC-checked EncStrings.
+async function keyFits(a, key) {
+  const { [`${a.id}:profile`]: profile, [`${a.id}:index4`]: index } = await local.get([`${a.id}:profile`, `${a.id}:index4`]);
+  const probe = typeof profile?.privateKey === 'string' ? profile.privateKey : index;
+  if (!probe) return true;
+  try { await bw.decrypt(probe, key); return true; } catch { return false; }
+}
+
+function touchSettingsView() {
+  const rec = st.touchUnlock;
+  const covered = Object.keys(rec?.wrapped || {}).map((id) => acct(id)?.label).filter(Boolean);
+  const err = h('p', { className: 'err' });
+  const remove = h('button', {
+    onclick: async () => {
+      if (remove.textContent !== 'Sure?') return (remove.textContent = 'Sure?');
+      await local.remove('touchUnlock');
+      st.touchUnlock = undefined;
+      touchSettingsView();
+    },
+  }, 'Turn off');
+  app.replaceChildren(title('Touch ID'),
+    h('p', { className: 'muted' }, rec
+      ? `On since ${new Date(rec.createdAt).toLocaleDateString()} for ${covered.join(', ') || 'no vaults'}. Your master password is still needed every ${touch.PASSWORD_EVERY_DAYS} days.`
+      : 'Unlock with Touch ID instead of typing your master password. Experimental: it needs the browser to support the WebAuthn PRF extension for extensions. Setting it up covers the vaults that are open now.'),
+    h('div', { className: 'inline' },
+      h('button', { className: 'primary', disabled: !unlocked().length, onclick: () => openTouch('enroll') }, rec ? 'Set up again' : 'Set up Touch ID'),
+      rec && remove,
+      h('button', { onclick: vaultView }, 'Done')),
+    err);
+}
+
+async function touchView(kind) {
+  const lines = [];
+  const log = h('pre', { className: 'touchlog' });
+  const say = (t) => { lines.push(t); log.textContent = lines.join('\n'); };
+  const err = h('p', { className: 'err' });
+  let caps = null;
+  const report = () => JSON.stringify({ ward: chrome.runtime.getManifest().version, kind, caps, steps: lines, error: err.textContent }, null, 2);
+  const copy = h('button', { hidden: true, onclick: () => navigator.clipboard.writeText(report()).then(() => (copy.textContent = 'Copied')) }, 'Copy report');
+  const retry = h('button', { className: 'primary', hidden: true, onclick: () => go() }, 'Try again');
+  const usePassword = h('button', { hidden: true, onclick: () => (location.hash = '', location.reload()) }, 'Use password');
+  app.replaceChildren(title(kind === 'enroll' ? 'Set up Touch ID' : 'Unlock with Touch ID'), log, err,
+    h('div', { className: 'inline' }, retry, usePassword, copy, h('button', { onclick: () => window.close() }, 'Close')));
+  const go = async () => {
+    retry.hidden = copy.hidden = usePassword.hidden = true;
+    err.textContent = '';
+    try {
+      caps = await touch.capabilities();
+      say(`platform authenticator: ${caps.platformAuthenticator}; PRF capability: ${caps.clientCapabilities?.['extension:prf'] ?? 'not reported'}`);
+      if (kind === 'enroll') {
+        const rec = await touch.enroll(null, unlocked().map((a) => [a.id, keys[a.id]]), say);
+        await local.set({ touchUnlock: (st.touchUnlock = rec) });
+        say('Touch ID unlock is on.');
+        copy.hidden = false;
+        setTimeout(() => window.close(), 2500);
+        return;
+      }
+      if (!st.touchUnlock) throw new Error('Touch ID is not set up');
+      let opened = 0;
+      for (const [id, key] of await touch.unlockKeys(st.touchUnlock, say)) {
+        const a = acct(id);
+        if (!a || keys[id]) continue;
+        if (!(await keyFits(a, key))) { say(`the key for ${a.label} no longer fits (master key rotated?)`); continue; }
+        await setKey(a, key);
+        opened++;
+      }
+      if (!opened && !unlocked().length) throw new Error('No vault opened. Set up Touch ID again after unlocking with your password.');
+      say(`unlocked ${opened} vault(s)`);
+      try {
+        const w = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+        await chrome.action.openPopup({ windowId: w.id });
+      } catch {}
+      window.close();
+    } catch (e) {
+      err.textContent = e?.name && e.name !== 'Error' ? `${e.name}: ${e.message}` : e?.message || String(e);
+      say(`failed: ${err.textContent}`);
+      retry.hidden = copy.hidden = false;
+      usePassword.hidden = kind !== 'unlock';
+    }
+  };
+  go();
+}
+
 // A lock/removal in another popup revokes this window's in-memory keys and any hand-off UI.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session') return;
@@ -833,6 +937,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   merge();
   if (pk) answer(CANCEL);
   else if (mode === 'save') closeSave();
+  else if (mode === 'touch') return;
   else if (st && accounts.length) unlocked().length ? vaultView() : unlockView();
 });
 

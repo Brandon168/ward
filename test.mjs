@@ -9,6 +9,7 @@ import vm from 'node:vm';
 import * as bw from './bw.js';
 import { mutateAccounts, withStateLock, AUTO_LOCK_CHOICES, autoLockMinutes, shouldAutoLock, lockEverything } from './coord.js';
 import { fillTab } from './autofill.js';
+import * as touch from './touch.js';
 
 globalThis.hashwasm = createRequire(import.meta.url)('./vendor/argon2.umd.min.js');
 const SERVER = process.env.SERVER || 'http://localhost:8099';
@@ -205,6 +206,40 @@ assert.ok(!shouldAutoLock('locked', { autoLock: 0 }), '"when the browser quits" 
   assert.equal(s.d.size, 0, 'auto-lock clears keys, lists and pending save offers');
 }
 console.log('ward hardening checks ok');
+
+{ // Touch ID unlock: PRF output -> HKDF -> AES-GCM wrapped user keys; a mock authenticator returns SHA-256(salt).
+  const prfOf = async (salt) => new Uint8Array(await crypto.subtle.digest('SHA-256', salt));
+  const calls = [];
+  const mockCreds = {
+    create: async ({ publicKey: o }) => (calls.push(['create', o]), { rawId: new Uint8Array([1, 2, 3]).buffer, authenticatorAttachment: 'platform',
+      getClientExtensionResults: () => ({ prf: { enabled: true } }) }),
+    get: async ({ publicKey: o }) => {
+      calls.push(['get', o]);
+      const first = (await prfOf(o.extensions.prf.eval.first)).buffer;
+      return { getClientExtensionResults: () => ({ prf: { results: { first } } }) };
+    },
+  };
+  Object.defineProperty(globalThis.navigator, 'credentials', { value: mockCreds, configurable: true });
+  const k1 = crypto.getRandomValues(new Uint8Array(64)), k2 = crypto.getRandomValues(new Uint8Array(64));
+  const rec = await touch.enroll(null, [['a', k1], ['b', k2]]);
+  assert.equal(calls[0][1].rp.id, undefined, 'extension pages leave rp.id to the browser (extension origin)');
+  assert.equal(calls[1][1].rpId, undefined);
+  assert.equal(calls[0][1].authenticatorSelection.userVerification, 'required');
+  assert.equal(calls[1][1].userVerification, 'required', 'every PRF evaluation needs user verification');
+  assert.ok(!JSON.stringify(rec).includes(Buffer.from(k1).toString('base64')), 'the raw key is never stored');
+  const got = new Map(await touch.unlockKeys(rec));
+  assert.deepEqual(got.get('a'), k1);
+  assert.deepEqual(got.get('b'), k2);
+  const swapped = { ...rec, wrapped: { a: rec.wrapped.b, b: rec.wrapped.a } };
+  await assert.rejects(touch.unlockKeys(swapped), /no vault key/, 'a wrapped key is bound to its vault id');
+  await assert.rejects(touch.unlockKeys({ ...rec, passwordAt: Date.now() - 15 * 864e5 }), /every 14 days/);
+  mockCreds.get = async () => ({ getClientExtensionResults: () => ({ prf: {} }) });
+  await assert.rejects(touch.unlockKeys(rec), /without a PRF result/);
+  mockCreds.create = async () => ({ rawId: new Uint8Array([9]).buffer, getClientExtensionResults: () => ({ prf: { enabled: false } }) });
+  await assert.rejects(touch.enroll(null, [['a', k1]]), /does not support the WebAuthn PRF/);
+  delete globalThis.navigator.credentials;
+}
+console.log('touch id checks ok');
 
 // Passkeys: a credential made by passkeyCreate signs assertions its public key verifies
 const fromB64u = (s) => Buffer.from(s, 'base64url');
@@ -531,7 +566,7 @@ function makePopup(hash, initial = {}, options = {}) {
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
-    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes,
+    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch,
     navigator: { clipboard: { writeText: async () => {} } }, localStorage: {},
     crypto: globalThis.crypto || nodeCrypto.webcrypto, TextDecoder, URL, Intl, structuredClone,
     console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
