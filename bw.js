@@ -23,8 +23,9 @@ const hmac = async (key, data, hash = 'SHA-256') =>
 
 export function urls(server) {
   const cloud = server.match(/^https:\/\/vault\.bitwarden\.(com|eu)$/);
-  if (cloud) return { api: `https://api.bitwarden.${cloud[1]}`, identity: `https://identity.bitwarden.${cloud[1]}` };
-  return { api: `${server}/api`, identity: `${server}/identity` };
+  if (cloud) return { api: `https://api.bitwarden.${cloud[1]}`, identity: `https://identity.bitwarden.${cloud[1]}`,
+    notifications: `wss://notifications.bitwarden.${cloud[1]}` };
+  return { api: `${server}/api`, identity: `${server}/identity`, notifications: `${server.replace(/^http/i, 'ws')}/notifications` };
 }
 
 // --- keys ---------------------------------------------------------------

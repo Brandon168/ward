@@ -1,6 +1,7 @@
 import * as bw from './bw.js';
 import { fillTab } from './autofill.js';
 import * as touch from './touch.js';
+import { storeSync } from './sync.js';
 import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
 
 const app = document.getElementById('app');
@@ -316,16 +317,7 @@ async function syncAccountNow(a, sync) {
   const prev = new Map((Array.isArray(lists[a.id]) ? lists[a.id] : []).map((i) => [i.id, i]));
   const items = (await bw.decryptVault(sync, keys[a.id], prev)).map((i) => ({ ...strip(i), a: a.id }));
   if (acct(a.id) !== a || !keys[a.id]) return;
-  const ids = sync.ciphers.map((c) => c.id), keep = new Set(ids);
-  const stored = await local.get(`${p}ids`);
-  const old = Array.isArray(stored[`${p}ids`]) ? stored[`${p}ids`] : [];
-  // raw ciphers stored one key per item so editing reads just the one it needs
-  await local.remove(old.filter((id) => !keep.has(id)).map((id) => `${p}c:${id}`));
-  const d = sync.domains || {};
-  const eq = [...(d.equivalentDomains || []), ...(d.globalEquivalentDomains || []).filter((g) => !g.excluded).map((g) => g.domains)];
-  // only what decrypting needs; the rest of the profile (hint, names, security stamp) stays off disk
-  const profile = { privateKey: sync.profile.privateKey, organizations: (sync.profile.organizations || []).map(({ id, key }) => ({ id, key })) };
-  await local.set({ [`${p}profile`]: profile, [`${p}ids`]: ids, [`${p}eq`]: eq, ...Object.fromEntries(sync.ciphers.map((c) => [`${p}c:${c.id}`, c])) });
+  await storeSync(local, p.slice(0, -1), sync); // shared with background sync (sync.js)
   await setList(a, items);
   await patchAccountsUnlocked(a.id, { lastSync: Date.now() });
   await loadEquiv();

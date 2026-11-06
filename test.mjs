@@ -10,6 +10,7 @@ import * as bw from './bw.js';
 import { mutateAccounts, withStateLock, AUTO_LOCK_CHOICES, autoLockMinutes, shouldAutoLock, lockEverything } from './coord.js';
 import { fillTab } from './autofill.js';
 import * as touch from './touch.js';
+import { storeSync, hasInvocation, SIGNALR_PING, syncOpenVault } from './sync.js';
 
 globalThis.hashwasm = createRequire(import.meta.url)('./vendor/argon2.umd.min.js');
 const SERVER = process.env.SERVER || 'http://localhost:8099';
@@ -566,7 +567,7 @@ function makePopup(hash, initial = {}, options = {}) {
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
-    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch,
+    bw: bwHarness, fillTab: options.fillTab || (async () => false), withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes, touch, storeSync,
     navigator: { clipboard: { writeText: async () => {} } }, localStorage: {},
     crypto: globalThis.crypto || nodeCrypto.webcrypto, TextDecoder, URL, Intl, structuredClone,
     console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
@@ -887,6 +888,55 @@ s.onTokens = (t) => (refreshed = t);
 await bw.api(s, '/sync');
 assert.ok(refreshed?.access && refreshed.expires > Date.now());
 console.log('token refresh ok');
+
+// Ward: live updates. The notification hub announces a change made by another client, and the service worker's
+// background sync (sync.js) brings the open vault up to date in storage.
+{
+  assert.ok(hasInvocation(new Uint8Array([0x05, 0x95, 0x01, 0x80, 0xc0, 0xa0])), 'an invocation frame is a change');
+  assert.ok(!hasInvocation(SIGNALR_PING), 'a ping is not');
+  assert.ok(!hasInvocation(new Uint8Array([0x7b, 0x7d, 0x1e])), 'nor the handshake answer');
+  const tok = await bw.refresh(SERVER, s.tokens.refresh);
+  const ws = new WebSocket(`${bw.urls(SERVER).notifications}/hub?access_token=${encodeURIComponent(tok.access)}`);
+  ws.binaryType = 'arraybuffer';
+  const frames = [];
+  let wake;
+  ws.onmessage = (e) => { frames.push(e.data); wake?.(); };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('notifications websocket failed')); });
+  ws.send('{"protocol":"messagepack","version":1}\x1e');
+  const waitFor = async (pred, ms) => {
+    const end = Date.now() + ms;
+    while (!frames.some(pred) && Date.now() < end) await new Promise((r) => { wake = r; setTimeout(r, 200); });
+    return frames.some(pred);
+  };
+  assert.ok(await waitFor((f) => typeof f !== 'string' && new Uint8Array(f)[0] === 0x7b, 5000), 'hub answers the messagepack handshake');
+  ws.send(SIGNALR_PING);
+  assert.ok(await waitFor((f) => typeof f !== 'string' && new Uint8Array(f)[1] === 0x91, 5000), 'Vaultwarden echoes the keep-alive ping');
+  // background sync of an "open" vault, with in-memory storage
+  const store = () => { const d = new Map(); return { d,
+    get: async (k) => Object.fromEntries((k == null ? [...d.keys()] : Array.isArray(k) ? k : [k]).filter((x) => d.has(x)).map((x) => [x, structuredClone(d.get(x))])),
+    set: async (o) => { for (const [x, v] of Object.entries(o)) d.set(x, structuredClone(v)); },
+    remove: async (k) => { for (const x of Array.isArray(k) ? k : [k]) d.delete(x); } }; };
+  const L = store(), S = store();
+  await L.set({ accounts: [{ id: 'live', server: SERVER, email, tokens: tok, lastSync: 0 }] });
+  await S.set({ 'live:key': bw.b64(r.userKey) });
+  assert.equal(await syncOpenVault(L, S, 'live'), true, 'a stale open vault syncs');
+  const before = JSON.parse(S.d.get('live:list'));
+  assert.equal(await syncOpenVault(L, S, 'live'), false, 'a fresh one waits for the next period');
+  // another client changes a login
+  const other = { server: SERVER, tokens: await bw.refresh(SERVER, s.tokens.refresh) };
+  const cur = await bw.decryptVault(await bw.api(other, '/sync'), r.userKey);
+  frames.length = 0;
+  await bw.saveCipher(other, r.userKey, cur[0], { ...cur[0], password: 'from-phone' });
+  assert.ok(await waitFor((f) => typeof f !== 'string' && hasInvocation(f), 8000), 'the hub announces the change');
+  assert.equal(await syncOpenVault(L, S, 'live', { force: true }), true);
+  const after = JSON.parse(S.d.get('live:list'));
+  assert.equal(after.find((i) => i.id === cur[0].id).password, 'from-phone', 'the open vault has the new password');
+  assert.equal(after.length, before.length);
+  assert.equal(new TextDecoder().decode(await bw.decrypt(L.d.get('live:index4'), r.userKey)), S.d.get('live:list'), 'encrypted cache matches');
+  await S.set({ 'live:key': bw.b64(crypto.getRandomValues(new Uint8Array(64))) });
+  ws.close();
+}
+console.log('live notifications + background sync ok');
 
 // Argon2id account
 const email2 = `argon-${run}@example.com`;

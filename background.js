@@ -4,6 +4,7 @@
 import * as bw from './bw.js';
 import { fillTab } from './autofill.js';
 import { withStateLock, lockEverything, shouldAutoLock, autoLockMinutes } from './coord.js';
+import { syncOpenVault, liveHub, freshTokens, SYNC_EVERY_MIN } from './sync.js';
 
 const local = chrome.storage.local, session = chrome.storage.session, td = new TextDecoder();
 const http = (url) => /^https?:\/\//i.test(url || '');
@@ -141,6 +142,28 @@ chrome.idle?.onStateChanged.addListener(async (idleState) => {
 });
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.autoLock) applyAutoLock(); });
 applyAutoLock();
+
+// --- background and live sync (Ward): open vaults stay fresh without the popup -------------------------------
+const openAccounts = async () => {
+  const { accounts } = await local.get('accounts');
+  const list = Array.isArray(accounts) ? accounts.filter((a) => accountId(a?.id)) : [];
+  const s = await session.get(list.map((a) => `${a.id}:key`));
+  return list.filter((a) => s[`${a.id}:key`]);
+};
+const syncQuietly = (id, opts) => syncOpenVault(local, session, id, opts).catch((e) => console.warn('Ward sync', id, e?.message));
+const hub = typeof WebSocket === 'function' && chrome.alarms // the test harness has neither alarms nor a server
+  ? liveHub({ open: { accounts: openAccounts, tokens: (id) => freshTokens(local, id) }, onChange: (id) => syncQuietly(id, { force: true }) })
+  : null;
+let hubTimer;
+const refreshHub = () => { clearTimeout(hubTimer); hubTimer = setTimeout(() => hub?.refresh().catch(() => {}), 1000); };
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'session' && Object.keys(changes).some((k) => /:key$/.test(k))) refreshHub(); });
+chrome.alarms?.get('ward-sync').then((x) => x || chrome.alarms.create('ward-sync', { periodInMinutes: SYNC_EVERY_MIN }));
+chrome.alarms?.onAlarm.addListener(async (x) => {
+  if (x.name !== 'ward-sync') return;
+  for (const a of await openAccounts()) await syncQuietly(a.id);
+  refreshHub();
+});
+refreshHub();
 
 // --- autofill shortcut (Ctrl/Cmd+Shift+L): the top login, as the popup's highlighted Fill -------------
 

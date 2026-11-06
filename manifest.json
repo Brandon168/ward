@@ -58,7 +58,8 @@
     "activeTab",
     "scripting",
     "unlimitedStorage",
-    "idle"
+    "idle",
+    "alarms"
   ],
   "host_permissions": [
     "https://*/*",

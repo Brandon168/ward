@@ -5,7 +5,8 @@
       "activeTab",
       "scripting",
       "unlimitedStorage",
-      "idle"
+      "idle",
+      "alarms"
     ],
     "optional_permissions": [],
     "host_permissions": [
@@ -58,6 +59,7 @@
   "network": {
     "background.js": {
       "fetch": 1,
+      "WebSocket": 1,
       "openWindow": 2
     },
     "bw.js": {
@@ -65,6 +67,9 @@
     },
     "popup.js": {
       "openWindow": 1
+    },
+    "sync.js": {
+      "WebSocket": 1
     }
   },
   "urls": [
@@ -94,6 +99,7 @@
     "popup.css",
     "popup.html",
     "popup.js",
+    "sync.js",
     "theme.js",
     "touch.js",
     "vendor/argon2.umd.min.js",
