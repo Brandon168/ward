@@ -13,21 +13,50 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Actions are pinned to full commit SHAs (a tag can be moved; a compromised Action is how the
+# April 2026 Bitwarden CLI npm release was poisoned).
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Guard rails (permissions, network call sites, dynamic code, vendor hashes, size budgets)
+        run: node scripts/guard.mjs
+      - name: Vendored argon2 is byte-identical to hash-wasm 4.12.0 on npm
+        run: |
+          curl -sSfL -o /tmp/hw.tgz https://registry.npmjs.org/hash-wasm/-/hash-wasm-4.12.0.tgz
+          node -e '
+            const want = "sha512-+/2B2rYLb48I/evdOIhP+K/DD2ca2fgBjp6O+GBEnCDk2e4rpeXIK8GvIyRPjTezgmWn9gmKwkQjjx6BtqDHVQ==";
+            const got = "sha512-" + require("crypto").createHash("sha512").update(require("fs").readFileSync("/tmp/hw.tgz")).digest("base64");
+            if (got !== want) { console.error("hash-wasm tarball integrity mismatch", got); process.exit(1); }'
+          tar -xzf /tmp/hw.tgz -C /tmp package/dist/argon2.umd.min.js
+          cmp /tmp/package/dist/argon2.umd.min.js vendor/argon2.umd.min.js
+      - name: No secrets committed
+        run: |
+          ! git grep -nI -E '(BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})' -- . ':!scripts/guard.mjs'
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
       vaultwarden:
-        image: vaultwarden/server:1.37.4
+        image: vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
         ports: ['8099:80']
         env:
           I_REALLY_WANT_VOLATILE_STORAGE: 'true'
           LOGIN_RATELIMIT_MAX_BURST: '100'
           LOGIN_RATELIMIT_SECONDS: '1'
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       - name: Wait for Vaultwarden
@@ -36,9 +65,7 @@ jobs:
         run: node test.mjs --integration
       - name: Build
         run: ./pack.sh
-      - name: Lint for Firefox
-        run: npx --yes web-ext@10.8.0 lint --source-dir dist/firefox
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/*.zip

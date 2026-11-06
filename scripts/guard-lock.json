@@ -1,0 +1,102 @@
+{
+  "manifest": {
+    "permissions": [
+      "storage",
+      "activeTab",
+      "scripting",
+      "unlimitedStorage"
+    ],
+    "optional_permissions": [],
+    "host_permissions": [
+      "https://*/*",
+      "http://*/*"
+    ],
+    "optional_host_permissions": [],
+    "content_scripts": [
+      {
+        "matches": [
+          "https://*/*"
+        ],
+        "js": [
+          "page.js"
+        ],
+        "run_at": "document_start",
+        "world": "MAIN"
+      },
+      {
+        "matches": [
+          "https://*/*"
+        ],
+        "js": [
+          "bridge.js"
+        ],
+        "run_at": "document_start"
+      },
+      {
+        "matches": [
+          "https://*/*",
+          "http://*/*"
+        ],
+        "js": [
+          "inpage.js"
+        ],
+        "all_frames": true
+      }
+    ],
+    "web_accessible_resources": [],
+    "externally_connectable": null,
+    "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    },
+    "background": {
+      "service_worker": "background.js",
+      "type": "module"
+    },
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqdMkwi09K7a87rh810bIA8h//XRe4Q6suf5VOHtDUfnfF8Y/cr5LJXR0KZkZy/Rc78caP9PxNgisEoUHjjfBojvUby3DYgAz1NDEiKzHPrsECijZzd2hTQQMe/bIjJV59xVHr1YqB0qDy1FFMhkJOOlgb7Fp6F8XBg/HVCxZL6jTErGwvO2MwRnT7cYTVBILhGMH0YX1GE0E7revnfbHZa/ONaimE0wVf8+2oKg/HToNMt+qS28WjTZ+SJYc+IEN0dXuE/HGrUHonjHuIV4/DLph6PnzcJXbeveDwuadbEG9PTMBin+LZ3L2Q/Xam7l8+5mcgb6hVID/XHq6zWVYLQIDAQAB"
+  },
+  "network": {
+    "background.js": {
+      "fetch": 1,
+      "openWindow": 2
+    },
+    "bw.js": {
+      "fetch": 2
+    }
+  },
+  "urls": [
+    "https://${body}",
+    "https://${requested}",
+    "https://${rpid}",
+    "https://${u}",
+    "https://${value}",
+    "https://api.bitwarden.${cloud[1]}",
+    "https://identity.bitwarden.${cloud[1]}",
+    "https://vault.bitwarden.com"
+  ],
+  "files": [
+    "LICENSE",
+    "autofill.js",
+    "background.js",
+    "bridge.js",
+    "bw.js",
+    "coord.js",
+    "icons/128.png",
+    "icons/16.png",
+    "icons/48.png",
+    "inpage.js",
+    "manifest.json",
+    "page.js",
+    "popup.css",
+    "popup.html",
+    "popup.js",
+    "theme.js",
+    "vendor/argon2.umd.min.js",
+    "vendor/hash-wasm.LICENSE",
+    "vendor/public_suffix_list.js"
+  ],
+  "vendor": {
+    "vendor/argon2.umd.min.js": "dcec617a2e1b700fa132d1583a186cb70611113395e869f2dd6cc82b415d3094",
+    "vendor/hash-wasm.LICENSE": "c14dea172f72f2714284a0ac2ab1b00b5352a01409d58255a46227ffc541debd",
+    "vendor/public_suffix_list.js": "c5e259031b2b579bf690609e2992da5d2dc00f0d4dc25d3359d8d2bfa44b7dc0"
+  }
+}

@@ -1,0 +1,58 @@
+name: Upstream watch
+
+# Weekly: list BW Lite commits newer than scripts/upstream-reviewed in one issue, flagging the ones that touch
+# security-sensitive areas. Upstream code is only inspected with git, never executed, and nothing is merged.
+# To adopt a fix: cherry-pick it on a branch, let CI's guard rails run, review, merge, then bump upstream-reviewed.
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare with upstream
+        id: cmp
+        run: |
+          git fetch --quiet https://github.com/yowmamasita/bw-lite main
+          base=$(cat scripts/upstream-reviewed)
+          new=$(git rev-list --count "$base..FETCH_HEAD")
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          {
+            echo "Upstream BW Lite has **$new** commit(s) since \`${base:0:7}\` (\`scripts/upstream-reviewed\`)."
+            echo
+            echo '### Commits'
+            git log --format='- `%h` %s (%an, %ad)' --date=short "$base..FETCH_HEAD"
+            echo
+            echo '### Files changed'
+            echo '```'
+            git diff --stat "$base" FETCH_HEAD
+            echo '```'
+            echo
+            echo '### Security-sensitive changes (review these first)'
+            echo '```'
+            git diff "$base" FETCH_HEAD -- manifest.json vendor/ | grep -E '^[+-][^+-]' | head -80 || true
+            git diff "$base" FETCH_HEAD -- '*.js' | grep -E '^\+.*(fetch\(|XMLHttpRequest|WebSocket|sendBeacon|import\(|eval\(|new Function|innerHTML|connectNative|onMessageExternal|https?://)' | head -80 || true
+            echo '```'
+            echo
+            echo 'Adopt a fix by cherry-picking it on a branch; CI runs the guard rails. Then bump `scripts/upstream-reviewed`.'
+          } > report.md
+      - name: Open or update the tracking issue
+        if: steps.cmp.outputs.new != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          n=$(gh issue list --label upstream --state open --json number -q '.[0].number')
+          gh label create upstream --color 5319e7 --description 'BW Lite upstream changes' 2>/dev/null || true
+          if [ -n "$n" ]; then gh issue edit "$n" --body-file report.md; else gh issue create --title 'Upstream BW Lite changes to review' --label upstream --body-file report.md; fi
