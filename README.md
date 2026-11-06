@@ -74,7 +74,8 @@ node scripts/guard.mjs              # security guard rails
 ```
 
 UI preview: `node scripts/preview.mjs` writes `preview/ward-popup.html` (git-ignored), the real popup with sample data
-in one self-contained file. Open it in any browser, or in Paseo's Files panel > Preview. Rerun it after each UI change.
+in one self-contained file, and `preview/ward-inpage.html`, a sample sign-in page with the real in-page menu and save
+bar (click a field). Open it in any browser, or in Paseo's Files panel > Preview. Rerun it after each UI change.
 Only that generated copy fakes the extension APIs and drops the popup's refusal to run in a frame.
 
 ## Upstream

@@ -69,24 +69,44 @@ if (!globalThis.bwliteFill) {
     return !styleHides(own) && root.opacity === '1' && root.filter === 'none' && document.elementFromPoint(e.clientX, e.clientY) === menu ? 'ok' : 'no';
   };
   const el = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });
+  // Ward: the popup's look (popup.css): same colours, system font, letter avatars in the same hues. The page can't see
+  // Settings > Appearance (popup storage), so these follow the system's light/dark.
+  const THEME = `
+    :host { all: initial; }
+    .box { --bg: #14171c; --panel: #1b1f26; --raised: #232831; --fg: #e8ebf0; --muted: #8b93a1; --line: #2a303a; --accent: #4f8cff;
+      box-sizing: border-box; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 8px 24px #0000004d, 0 1px 3px #00000033; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    @media (prefers-color-scheme: light) { .box { --bg: #fff; --panel: #f6f7f9; --raised: #eef0f3; --fg: #14171c; --muted: #6b7280;
+      --line: #e3e6ea; --accent: #2f6fec; box-shadow: 0 8px 24px #0f172a1f, 0 1px 3px #0f172a14; } }`;
+  const PALETTE = ['#2f6fec', '#e2553f', '#16a34a', '#9333ea', '#ea8a0c', '#0891b2', '#db2777', '#4b5563']; // popup.js
+  const hue = (s) => PALETTE[[...String(s || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
   function showMenu(field, logins) {
     const r = field.getBoundingClientRect();
     menuFor = field;
     menu = document.createElement('bwlite-menu');
-    menu.style.cssText = `all: initial; position: fixed; z-index: 2147483647; left: ${r.left}px; top: ${r.bottom + 2}px;`;
+    menu.style.cssText = `all: initial; position: fixed; z-index: 2147483647; left: ${r.left}px; top: ${r.bottom + 4}px;`;
     const root = menu.attachShadow({ mode: 'closed' });
-    root.append(el('style', `
-      div { min-width: ${Math.max(r.width, 220)}px; max-width: 360px; background: #000; color: #fff; border: 1px solid #555;
-        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      @media (prefers-color-scheme: light) { div { background: #fff; color: #000; border-color: #bbb; } }
-      button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 6px 9px; cursor: pointer; }
-      button:hover { background: #8884; }
+    root.append(el('style', `${THEME}
+      .box { min-width: ${Math.max(r.width, 240)}px; max-width: 360px; padding: 4px; }
+      .head { padding: 4px 8px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+      button { all: unset; display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; padding: 6px; border-radius: 8px; cursor: pointer; }
+      button:hover { background: var(--raised); }
+      .av { width: 28px; height: 28px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; }
+      .info { flex: 1; min-width: 0; }
       b, small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      small { opacity: .6; }`));
-    const box = root.appendChild(document.createElement('div'));
+      b { font-weight: 600; } small { color: var(--muted); font-size: 11.5px; }`));
+    const box = root.appendChild(el('div'));
+    box.className = 'box';
+    box.appendChild(el('div', 'Ward')).className = 'head';
     for (const l of logins) {
       const b = box.appendChild(document.createElement('button'));
-      b.append(el('b', l.username || '(no username)'), el('small', l.name));
+      const av = el('span', (l.name || '?').trim()[0]?.toUpperCase() || '?');
+      av.className = 'av';
+      av.style.background = hue(l.name);
+      const info = el('span');
+      info.className = 'info';
+      info.append(el('b', l.name || '(no name)'), el('small', [l.username || '(no username)', l.vault].filter(Boolean).join(' · ')));
+      b.append(av, info);
       b.addEventListener('click', async (e) => {
         // the page can hide this menu and draw a decoy over or under it: fill only a click on the visible menu
         const verdict = genuine(e);
@@ -184,14 +204,19 @@ if (!globalThis.bwliteFill) {
     bar.style.cssText = 'all: initial; position: fixed; top: 12px; right: 12px; z-index: 2147483647;';
     const root = bar.attachShadow({ mode: 'closed' });
     const style = document.createElement('style');
-    style.textContent = `
-      :host { all: initial; }
-      div { box-sizing: border-box; width: 382px; padding: 12px; background: #000; color: #fff;
-        border: 1px solid #555; font: 13px/1.4 system-ui, sans-serif; }
-      p { margin: 0 0 10px; } button { margin-right: 8px; padding: 5px 10px; cursor: pointer; }
-      @media (prefers-color-scheme: light) { div { background: #fff; color: #000; border-color: #bbb; } }`;
+    style.textContent = `${THEME}
+      .box { display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 24px); padding: 8px 8px 8px 14px; }
+      p { flex: 1; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      button { font: inherit; cursor: pointer; border-radius: 8px; white-space: nowrap; }
+      .primary { padding: 6px 11px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
+      .primary:hover:not(:disabled) { filter: brightness(1.08); }
+      .primary:disabled { opacity: .45; cursor: default; }
+      .quiet { width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; }
+      .quiet:hover { background: var(--raised); color: var(--fg); }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }`;
     root.append(style);
     const box = document.createElement('div');
+    box.className = 'box';
     const message = document.createElement('p');
     message.textContent = `Ward found ${what === 'card' ? 'a card' : what === 'address' ? 'an address' : what === 'card and address' ? 'a card and an address' : 'a login'} to save.`;
     box.append(message);
@@ -202,7 +227,10 @@ if (!globalThis.bwliteFill) {
       if (result?.opened) removeBar();
       else review.disabled = false;
     });
-    button(box, '×', (e) => e.isTrusted && removeBar()).title = 'Dismiss';
+    review.className = 'primary';
+    const dismiss = button(box, '×', (e) => e.isTrusted && removeBar());
+    dismiss.className = 'quiet';
+    dismiss.title = 'Dismiss';
     root.append(box);
     document.documentElement.append(bar);
   };

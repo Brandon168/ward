@@ -466,7 +466,7 @@ async function menu(sender) {
   const v = await vault();
   const multi = v.accounts.length > 1;
   return forSite(v, sender.url).filter((i) => !i.reprompt).slice(0, 8).map((i) => ({
-    k: `${i.a}:${i.id}`, username: i.username, name: multi ? `${i.name} · ${v.accounts.find((a) => a.id === i.a)?.label}` : i.name,
+    k: `${i.a}:${i.id}`, username: i.username, name: i.name, vault: multi ? v.accounts.find((a) => a.id === i.a)?.label : undefined,
   }));
 }
 

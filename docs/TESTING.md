@@ -24,6 +24,8 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
 2. **Speed**: open the popup on a site with a saved login. Note how long until the list shows, compared with Bitwarden.
 3. **Fill**: popup Fill; Cmd+Shift+L; click into the username field and pick from the menu under it.
    - The menu should NOT appear when the page focuses the field by itself (no click/Tab from you).
+   - It should look like the popup: rounded, system font, letter avatars, item name over the username; light/dark
+     follows the system (Settings > Appearance applies to the popup only).
 4. **Save**: sign in somewhere with a new password → "Ward found a login to save" → Review save.
 5. **Offline**: turn Wi-Fi off, lock (lock button), unlock with the master password, fill. Turn Wi-Fi back on.
 6. **Live sync**: with Ward unlocked, change a password for a login on your phone or in the web vault.

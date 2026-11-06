@@ -27,7 +27,8 @@ CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` on every push.
 ## UI work
 
 - `node scripts/preview.mjs` builds `preview/ward-popup.html` (git-ignored): the real popup with sample data
-  (`scripts/preview-shim.js`) in one self-contained file. The user views it in Paseo's Files panel > Preview, so
+  (`scripts/preview-shim.js`) in one self-contained file, and `preview/ward-inpage.html`: a sample sign-in page running
+  the real inpage.js (field menu, save bar). The in-page UI reuses the popup's colours and avatars; keep them in step. The user views it in Paseo's Files panel > Preview, so
   rebuild it after every UI change. It must keep working under that panel's limits: a sandboxed frame, inline scripts
   and blob: modules only, no network, storage, clipboard or Web Locks.
 - docs/design/ holds the original UI mockups (option E was chosen) and 0.4.0 screenshots.
