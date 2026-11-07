@@ -1036,6 +1036,9 @@ await rpPopup.api.start();
 const copied = [];
 rpPopup.context.navigator.clipboard.writeText = async (t) => { copied.push(t); };
 const byTitle = (node, prefix) => [...(node?.tagName === 'BUTTON' && String(node.title || '').startsWith(prefix) ? [node] : []), ...(node?.children || []).flatMap((c) => byTitle(c, prefix))];
+// a row's buttons are built when it is hovered or selected (popup.js withActions): hover every row, as a user would
+const hoverRows = (node) => { if (node?.listeners?.pointerenter) node.listeners.pointerenter(); for (const c of node?.children || []) hoverRows(c); };
+hoverRows(rpPopup.app);
 const passButtons = byTitle(rpPopup.app, 'Copy password');
 assert.equal(passButtons.length, 1, 'viewPassword: false hides the copy button');
 passButtons[0].onclick({ target: passButtons[0], stopPropagation() {} });
@@ -1061,7 +1064,9 @@ for (const pw of ['wrong', 'right']) {
   const rowsNow = () => items(up.app);
   const sel = () => rowsNow().filter((r) => r.classList.contains('sel')).map((r) => r.dataset.key);
   assert.deepEqual(sel(), ['ui:gh'], "this site's best match is selected when Ward opens");
-  const titled = (node, prefix) => byTitle(node, prefix);
+  assert.equal(byTitle(up.app, 'Fill · GitHub').length, 1, 'the selected row has its buttons at once');
+  assert.equal(byTitle(up.app, 'Copy username · Amazon').length, 0, 'other rows build theirs on first hover');
+  const titled = (node, prefix) => (hoverRows(node), byTitle(node, prefix));
   assert.equal(titled(up.app, 'Fill · GitHub').length >= 1, true, 'site logins can be filled');
   assert.equal(titled(up.app, 'Fill · Amazon').length, 0, 'a login for another site has no Fill');
   assert.equal(titled(up.app, 'Fill · Visa').length, 1, 'a card can be filled on an https page');
@@ -1166,8 +1171,8 @@ assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActi
 
 { // Generator: sets, lengths, uniform picks, passphrases from the EFF list, usernames
   const eff = (await readFile(new URL('./vendor/eff_large_wordlist.txt', import.meta.url), 'utf8')).trim().split('\n').map((l) => l.split('\t')[1]);
-  assert.deepEqual(gen.WORDS, eff, 'eff_large_wordlist.js is generated from the .txt (vendor/wordlist.sh)');
-  assert.equal(new Set(gen.WORDS).size, 7776);
+  assert.deepEqual(gen.words(), eff, 'eff_large_wordlist.js is generated from the .txt (vendor/wordlist.sh)');
+  assert.equal(new Set(gen.words()).size, 7776);
   for (let i = 0; i < 200; i++) {
     const p = gen.password({ length: 12 });
     assert.equal(p.length, 12);
@@ -1182,7 +1187,7 @@ assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActi
   const words = gen.passphrase({ words: 6, separator: ' ', capitalize: true, number: true }).split(' ');
   assert.equal(words.length, 6);
   assert.equal(words.filter((w) => /\d$/.test(w)).length, 1, 'one word carries the number');
-  for (const w of words) assert.ok(gen.WORDS.includes(w.replace(/\d$/, '').toLowerCase()) && /^[A-Z]/.test(w));
+  for (const w of words) assert.ok(gen.words().includes(w.replace(/\d$/, '').toLowerCase()) && /^[A-Z]/.test(w));
   assert.equal(gen.bits({ type: 'passphrase', words: 5 }), 64);
   assert.equal(gen.bits({ length: 20 }), 120, '20 characters from 66 (look-alikes removed)');
   assert.match(gen.username({ type: 'username', userType: 'plus', email: 'ann+old@example.com' }), /^ann\+[a-z-]+\d{4}@example\.com$/);
@@ -1245,6 +1250,63 @@ assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActi
   assert.match((await prompt({ challenge: 'AQID' }, 'h')).error, /cancelled or timed out/);
   assert.match((await prompt({}, 'h')).error, /no security key challenge/);
   console.log('two-step login (bw.js, security key prompt) ok');
+}
+
+{ // vendor/public_suffix_list.js is generated from the .dat by vendor/psl.sh: same rules, in lookup form
+  const psl = await import('./vendor/public_suffix_list.js');
+  const dat = await readFile(new URL('./vendor/public_suffix_list.dat', import.meta.url), 'utf8');
+  const ascii = (b) => { try { return new URL(`https://${b}`).hostname.toLowerCase().replace(/\.$/, ''); } catch { return b.toLowerCase(); } };
+  const want = { PSL_EXACT: new Set(), PSL_WILDCARD: new Set(), PSL_EXCEPTION: new Set() };
+  for (const line of dat.split('\n')) {
+    const r = line.trim().split(/\s/)[0];
+    if (!r || r.startsWith('//')) continue;
+    if (r[0] === '!') want.PSL_EXCEPTION.add(ascii(r.slice(1))); else if (r.startsWith('*.')) want.PSL_WILDCARD.add(ascii(r.slice(2))); else want.PSL_EXACT.add(ascii(r));
+  }
+  for (const [k, set] of Object.entries(want)) assert.deepEqual(new Set(psl[k].trim().split('\n')), set, `${k} matches public_suffix_list.dat (run vendor/psl.sh)`);
+  assert.match(psl.PSL_DATE, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(bw.baseDomain('a.b.bücher.example.xn--p1ai'), 'example.xn--p1ai', 'internationalised suffixes still apply');
+  console.log('public suffix list in step ok');
+}
+
+{ // Base domains computed ahead: used when their suffix-list version matches, ignored when stale or misaligned
+  const it = (d, dv) => ({ uris: ['https://shop.example.com/x'], d, dv });
+  const V = bw.DOMAINS_VERSION;
+  assert.ok(bw.matches(it(['example.com'], V), 'https://example.com/'), 'stored domain used');
+  assert.ok(!bw.matches(it(['other.com'], V), 'https://example.com/'), 'and trusted as stored (it was computed by decryptVault)');
+  assert.ok(bw.matches(it(['other.com'], V + 1), 'https://example.com/'), 'a different suffix list version: recomputed');
+  assert.ok(bw.matches(it(['other.com']), 'https://example.com/'), 'no version (an older cache): recomputed');
+  assert.ok(!bw.matches(it(['github.io']), 'https://evil.github.io/') && !bw.matches({ uris: ['https://login.github.io'], d: ['github.io'] }, 'https://evil.github.io/'),
+    'a pre-suffix-list domain in an old cache cannot match another github.io site');
+  assert.ok(bw.matches(it(['other.com', 'x'], V), 'https://example.com/'), 'not one per URI: recomputed');
+  const raw = [['youtube.com', 'google.com', 'google.co.uk'], ['one.example', 'two.example']];
+  const ready = { v: V, groups: raw.map((g) => g.map((x) => bw.domainOf(x))) };
+  for (const [page, uri] of [['https://www.youtube.com/', 'https://accounts.google.com'], ['https://two.example/', 'https://one.example'], ['https://x.org/', 'https://google.com']])
+    assert.equal(bw.matches(item([uri]), page, bw.equivalents(ready)), bw.matches(item([uri]), page, bw.equivalents(raw)), `equivalents forms agree on ${page}`);
+  assert.ok(bw.matches(item(['https://google.co.uk']), 'https://youtube.com/', bw.equivalents({ v: V + 1, groups: ready.groups })), 'stale groups recomputed');
+  console.log('precomputed domains ok');
+}
+
+{ // The plain-host fast path in domainOf gives exactly what URL gives (the old way), on tricky and random input
+  const slowHost = (u) => { try { return new URL(/^[a-z][\w+.-]*:\/\//i.test(u) ? u : `https://${u}`).hostname; } catch { return null; } };
+  const slowNorm = (h) => { let v = String(h || '').trim(); try { if (v && !v.includes('/') && !v.startsWith('[')) v = new URL(`https://${v}`).hostname; } catch {} return v.toLowerCase().replace(/\.$/, ''); };
+  const expected = (u) => { const h = slowHost(u); return h === null ? null : bw.baseDomain(slowNorm(h)); };
+  const tricky = ['https://Example.COM/x', 'example.com', 'http://1.2.3.4/', 'http://0x7f.1/', 'https://1.2.3/', 'https://a.b.123/', 'https://xn--bcher-kva.de/',
+    'https://xn--zz.com/', 'https://exa\tmple.com/', ' https://example.com', 'https://example.com./', 'https://user@example.com/', 'https://example.com:99999/',
+    'https://example.com:443/', 'ftp://example.com/', 'https:example.com', '//example.com', 'https://-a-.example.com', 'https://a..b.com', 'https://%65xample.com',
+    'https://exam ple.com', 'https://EXAMPLE.co.uk', 'localhost', 'localhost:8080/x', 'https://bücher.de', 'javascript:alert(1)', 'https://a.github.io',
+    'https://' + 'a'.repeat(64) + '.com', 'https://' + 'a.'.repeat(130) + 'com', 'HTTP://WWW.Example.Com?x', 'https://example.com#frag', 'https://example.com\\x', ''];
+  for (const u of tricky) assert.equal(bw.domainOf(u), expected(u), `domainOf(${JSON.stringify(u)})`);
+  const pre = ['', 'http://', 'https://', 'HTTPS://', 'ftp://', '//', 'https:'], abc = 'aZ09.-:/@?#\\%_ \tx';
+  let seed = 7;
+  const rand = (n) => ((seed = (seed * 1103515245 + 12345) >>> 0) % n);
+  for (let k = 0; k < 30000; k++) {
+    let u = pre[rand(pre.length)];
+    const n = 1 + rand(14);
+    for (let j = 0; j < n; j++) u += rand(3) ? 'abcdexyz0123456789.-'[rand(20)] : abc[rand(abc.length)];
+    if (rand(4) === 0) u += '.com';
+    assert.equal(bw.domainOf(u), expected(u), `domainOf(${JSON.stringify(u)})`);
+  }
+  console.log('domain fast path matches URL ok');
 }
 
 if (!process.argv.includes('--integration')) process.exit(0);
@@ -1318,7 +1380,9 @@ const prev = new Map(vault.map((i) => [i.id, i]));
 assert.equal((await bw.decryptVault(sync, r.userKey, prev))[0], vault[0]);
 const stale = new Map([[vault[0].id, { ...vault[0], rev: 'old', password: 'stale' }]]);
 assert.equal((await bw.decryptVault(sync, r.userKey, stale))[0].password, 'pw2');
-assert.equal(vault[0].d, undefined, 'derived domains are not trusted for matching');
+// Base domains are stored with the suffix-list version that made them; unversioned or older ones (BW Lite's cache
+// computed them without the Public Suffix List) are never trusted for matching (offline checks above).
+assert.deepEqual([vault[0].d, vault[0].dv], [vault[0].uris.map((u) => bw.domainOf(u)), bw.DOMAINS_VERSION], 'derived domains carry their version');
 assert.equal(vault[0].m, undefined, 'no match types set');
 console.log('incremental decrypt ok');
 

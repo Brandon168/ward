@@ -77,7 +77,6 @@
   },
   "urls": [
     "http://www.w3.org",
-    "https://${body}",
     "https://${requested}",
     "https://${rpid}",
     "https://${u}",
@@ -120,6 +119,6 @@
     "vendor/argon2.umd.min.js": "dcec617a2e1b700fa132d1583a186cb70611113395e869f2dd6cc82b415d3094",
     "vendor/eff_large_wordlist.js": "307c728d647abec2292b3dd189460a2dc1ffc71521d5e2512461161a7791c37b",
     "vendor/hash-wasm.LICENSE": "c14dea172f72f2714284a0ac2ab1b00b5352a01409d58255a46227ffc541debd",
-    "vendor/public_suffix_list.js": "c5e259031b2b579bf690609e2992da5d2dc00f0d4dc25d3359d8d2bfa44b7dc0"
+    "vendor/public_suffix_list.js": "deb48c9627b5d40dc77cf67e0a3208091f0f8fd4da59a7c22b19a3f7d1858840"
   }
 }

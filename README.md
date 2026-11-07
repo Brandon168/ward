@@ -120,6 +120,7 @@ node scripts/guard.mjs              # security guard rails
 ./pack.sh                           # dist/ward-<version>.zip
 node scripts/screenshots.mjs        # docs/screenshots/ from the sample-data previews (needs Chromium)
 node scripts/bench.mjs --bitwarden <dir>   # speed/memory/CPU vs Bitwarden, see docs/benchmarks.md
+node scripts/perf.mjs                # Ward's own speed: popup, search, in-page menu, fill (docs/performance.md)
 ```
 
 UI preview: `node scripts/preview.mjs` writes `preview/ward-popup.html` (git-ignored), the real popup with sample data

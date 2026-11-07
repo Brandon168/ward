@@ -3,7 +3,8 @@
 // modulo bias), and a password holds at least one character of each set the user turned on.
 import { EFF_LARGE_WORDLIST } from './vendor/eff_large_wordlist.js';
 
-export const WORDS = EFF_LARGE_WORDLIST.trim().split('\n');
+let wordList;
+export const words = () => wordList || (wordList = EFF_LARGE_WORDLIST.trim().split('\n')); // split on first use
 const SETS = {
   upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
   lower: 'abcdefghijklmnopqrstuvwxyz',
@@ -68,12 +69,12 @@ export function password(opts) {
 
 export function passphrase(opts) {
   const o = normalize(opts);
-  const words = Array.from({ length: o.words }, () => pick(WORDS)).map((w) => (o.capitalize ? cap(w) : w));
+  const out = Array.from({ length: o.words }, () => pick(words())).map((w) => (o.capitalize ? cap(w) : w));
   if (o.number) {
-    const i = randomInt(words.length);
-    words[i] += randomInt(10);
+    const i = randomInt(out.length);
+    out[i] += randomInt(10);
   }
-  return words.join(o.separator);
+  return out.join(o.separator);
 }
 
 // word: a random word (and 4 digits); plus: you+word@example.com; catchall: word@your-domain. email/domain empty: the
@@ -81,7 +82,7 @@ export function passphrase(opts) {
 export function username(opts) {
   const o = normalize(opts);
   const digits = () => String(randomInt(10000)).padStart(4, '0');
-  const word = pick(WORDS) + (o.userNumber || o.userType !== 'word' ? digits() : '');
+  const word = pick(words()) + (o.userNumber || o.userType !== 'word' ? digits() : '');
   if (o.userType === 'plus') {
     const at = o.email.lastIndexOf('@');
     if (at < 1) throw new Error('Enter the email address to add +tags to');
@@ -102,7 +103,7 @@ export function generate(opts) {
 // About how many bits of randomness a password or passphrase with these options carries (shown as a hint).
 export function bits(opts) {
   const o = normalize(opts);
-  if (o.type === 'passphrase') return Math.floor(o.words * Math.log2(WORDS.length) + (o.number ? Math.log2(10 * o.words) : 0));
+  if (o.type === 'passphrase') return Math.floor(o.words * Math.log2(words().length) + (o.number ? Math.log2(10 * o.words) : 0));
   if (o.type === 'username') return 0;
   return Math.floor(o.length * Math.log2(sets(o).join('').length));
 }

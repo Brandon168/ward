@@ -24,7 +24,8 @@ const NOT_SHIPPED = new Set(['vendor/psl.sh', 'vendor/public_suffix_list.dat', '
 const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
 // pageScriptsBytes is what every page pays and stays strict. firstPartyJsBytes is a sanity cap: popup.js parses in
 // ~1.4 ms (measured 2026-11-06), so the popup is not split; raise this only with a reason in the commit.
-const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 230_000 };
+// 230 -> 240 KB (2026-11-07): two-step login, the generator and the speed work (chunked list, caches, fast paths).
+const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 240_000 };
 
 const read = (f) => readFileSync(join(root, f), 'utf8');
 const sha256 = (f) => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');

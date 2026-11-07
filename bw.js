@@ -1,5 +1,5 @@
 // Bitwarden protocol: key derivation, EncString crypto, API calls, TOTP. No chrome.* here so it runs in Node tests too.
-import { PUBLIC_SUFFIX_LIST } from './vendor/public_suffix_list.js';
+import { PSL_DATE, PSL_EXACT, PSL_WILDCARD, PSL_EXCEPTION } from './vendor/public_suffix_list.js';
 const subtle = crypto.subtle, te = new TextEncoder(), td = new TextDecoder();
 const CLIENT = { 'Device-Type': '2', 'Bitwarden-Client-Name': 'browser', 'Bitwarden-Client-Version': '2025.10.0' };
 
@@ -239,14 +239,16 @@ export function cardBrand(number) {
   if (/^62/.test(n)) return 'UnionPay';
   return n ? 'Other' : '';
 }
-const collator = new Intl.Collator();
+// Created on first sort: the first Intl object loads locale data, which a popup or worker start shouldn't wait for.
+let collatorObj;
+const collator = { compare: (a, b) => (collatorObj ||= new Intl.Collator()).compare(a, b) };
 // prev: Map of id -> earlier result; entries whose revisionDate is unchanged are reused instead of decrypted again.
 export async function decryptVault(sync, userKey, prev) {
   const priv = sync.profile.privateKey && (await decrypt(sync.profile.privateKey, userKey));
   const orgKeys = {};
   for (const o of sync.profile.organizations || []) if (o.key) orgKeys[o.id] = await rsaDecrypt(o.key, priv);
   const out = await Promise.all(sync.ciphers.filter((c) => [1, 2, 3, 4].includes(c.type) && !c.deletedDate).map(async (c) => {
-    if (prev?.get(c.id)?.rev === c.revisionDate) return prev.get(c.id);
+    if (prev?.get(c.id)?.rev === c.revisionDate) return withDomains(prev.get(c.id));
     try {
       const key = c.key ? await decrypt(c.key, orgKeys[c.organizationId] || userKey) : orgKeys[c.organizationId] || userKey;
       if (c.type !== 1) { // Ward: secure notes, cards, identities. uris: [] keeps them out of every site match.
@@ -264,8 +266,8 @@ export async function decryptVault(sync, userKey, prev) {
       const passkeys = l.fido2Credentials?.length ? await Promise.all(l.fido2Credentials.map(async (f) =>
         Object.fromEntries(await Promise.all(PASSKEY_FIELDS.map(async (k) => [k, await decStr(f[k], key)]))))) : undefined;
       const m = l.uris?.some((u) => u.match != null) ? l.uris.map((u) => u.match) : undefined; // per-URI match type, when any is set
-      return { id: c.id, rev: c.revisionDate, raw: c, key, name, notes, username, password, totp, uris, m, passkeys,
-        reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined }; // undefined keeps the cached JSON small
+      return withDomains({ id: c.id, rev: c.revisionDate, raw: c, key, name, notes, username, password, totp, uris, m, passkeys,
+        reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined }); // undefined keeps the cached JSON small
     } catch (e) {
       console.warn('Skipping undecryptable item', c.id, e);
     }
@@ -336,26 +338,45 @@ export async function saveCipher(s, userKey, item, v) {
 // Moves an item to the trash, as the official clients' Delete does (restorable there for 30 days).
 export const deleteCipher = (s, id) => api(s, `/ciphers/${id}/delete`, 'PUT');
 
-// The list includes ICANN and private suffixes (for example github.io and pages.dev).
-const psl = (() => {
-  const exact = new Set(), wildcard = new Set(), exception = new Set();
-  const idna = (rule) => {
-    const prefix = rule.startsWith('!') ? '!' : rule.startsWith('*.') ? '*.' : '';
-    const body = rule.slice(prefix === '!' ? 1 : prefix === '*.' ? 2 : 0);
-    try { return `${prefix}${new URL(`https://${body}`).hostname.toLowerCase().replace(/\.$/, '')}`; } catch { return rule.toLowerCase(); }
+// The list includes ICANN and private suffixes (for example github.io and pages.dev). vendor/psl.sh stores the rules
+// in lookup form (ASCII, lowercase, by kind), so building the sets is all that's left; done on first use.
+let pslRules;
+const ruleSet = (text) => new Set(text.trim().split('\n'));
+const psl = () => pslRules || (pslRules = { exact: ruleSet(PSL_EXACT), wildcard: ruleSet(PSL_WILDCARD), exception: ruleSet(PSL_EXCEPTION) });
+
+// Base domains computed ahead (stored with each cached login as d, and with the equivalent domain groups) carry
+// the suffix list they came from; after a list update they are ignored and recomputed.
+export const DOMAINS_VERSION = PSL_DATE;
+const withDomains = (i) => (i.uris?.length && i.dv !== DOMAINS_VERSION ? { ...i, d: i.uris.map((u) => domainOf(u)), dv: DOMAINS_VERSION } : i);
+
+// Pure string -> string lookups repeated for every saved URL on every match: remembered (bounded, cleared when full).
+const memo = (fn, max = 20000) => {
+  const m = new Map();
+  return (k) => {
+    let v = m.get(k);
+    if (v === undefined) {
+      if (m.size >= max) m.clear();
+      m.set(k, (v = fn(k)));
+    }
+    return v;
   };
-  for (const raw of PUBLIC_SUFFIX_LIST.split(/\s+/)) {
-    if (!raw || raw.startsWith('//')) continue;
-    const rule = idna(raw);
-    if (rule[0] === '!') exception.add(rule.slice(1));
-    else if (rule.startsWith('*.')) wildcard.add(rule.slice(2));
-    else exact.add(rule);
-  }
-  return { exact, wildcard, exception };
-})();
+};
+
+// A host URL would leave as it is (lowercased): ASCII letters, digits and hyphens in non-empty labels of at most 63,
+// no punycode (xn--, which URL validates), and a last label that starts with a letter (URL parses hosts ending in a
+// number as IPv4). Anything else goes through URL. Saves two URL parses per saved URI on every popup open.
+const PLAIN_HOST = /^(?=.{1,253}$)(?!.*(?:^|\.)xn--)[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})*$/i;
+const plainHost = (h) => PLAIN_HOST.test(h) && /[a-z]/i.test(h[h.lastIndexOf('.') + 1] || '');
+// The host of an http(s) or schemeless URI without a port or user info, the way toURL(u).hostname would give it.
+const PLAIN_URI = /^(?:https?:\/\/)?([^/?#:@\\\s%]+)(?:[/?#]|$)/i;
+const plainUriHost = (u) => {
+  const m = PLAIN_URI.exec(u);
+  return m && plainHost(m[1]) ? m[1].toLowerCase() : null;
+};
 
 const normalizeHost = (host) => {
   let value = String(host || '').trim();
+  if (plainHost(value)) return value.toLowerCase();
   try {
     // URL.hostname applies IDNA (for example bücher.de -> xn--bcher-kva.de)
     // consistently for both saved URIs and page origins.
@@ -365,13 +386,13 @@ const normalizeHost = (host) => {
 };
 const ipHost = (host) => /^[\d.]+$/.test(host) || host.includes(':');
 const suffixLength = (host) => {
-  const labels = normalizeHost(host).split('.');
+  const labels = normalizeHost(host).split('.'), rules = psl();
   let best = 1;
   for (let i = 0; i < labels.length; i++) {
     const rule = labels.slice(i).join('.');
-    if (psl.exception.has(rule)) return labels.length - i - 1;
-    if (psl.exact.has(rule)) best = Math.max(best, labels.length - i);
-    if (i > 0 && psl.wildcard.has(labels.slice(i).join('.'))) best = Math.max(best, labels.length - i + 1);
+    if (rules.exception.has(rule)) return labels.length - i - 1;
+    if (rules.exact.has(rule)) best = Math.max(best, labels.length - i);
+    if (i > 0 && rules.wildcard.has(labels.slice(i).join('.'))) best = Math.max(best, labels.length - i + 1);
   }
   return best;
 };
@@ -398,25 +419,31 @@ export function relatedOrigin(json, origin) {
   return false;
 }
 
-export function baseDomain(host) {
-  host = normalizeHost(host);
+const baseDomainOf = memo((raw) => {
+  const host = normalizeHost(raw);
   if (!host || ipHost(host)) return host;
   const p = host.split('.'), suffix = suffixLength(host);
   return p.length <= suffix ? host : p.slice(-(suffix + 1)).join('.');
-}
+});
+export const baseDomain = (host) => baseDomainOf(String(host ?? ''));
 
 const toURL = (u) => new URL(/^[a-z][\w+.-]*:\/\//i.test(u) ? u : `https://${u}`);
 
-export function domainOf(u) {
+const domainOfUrl = memo((u) => {
   try {
-    return baseDomain(toURL(u).hostname);
+    return baseDomain(plainUriHost(u) ?? toURL(u).hostname);
   } catch {
     return null;
   }
-}
+});
+export const domainOf = (u) => domainOfUrl(String(u));
 
 // groups: lists of domains the server treats as one site (sync.domains). Returns domain -> every domain it equals.
+// groups: raw lists of domains (sync.domains), or { v: DOMAINS_VERSION, groups } with base domains already worked
+// out (storeSync stores that form).
 export function equivalents(groups) {
+  const ready = groups && !Array.isArray(groups) && groups.v === DOMAINS_VERSION;
+  if (groups && !Array.isArray(groups)) groups = groups.groups;
   const parent = new Map();
   const find = (x) => {
     if (!parent.has(x)) parent.set(x, x);
@@ -432,7 +459,7 @@ export function equivalents(groups) {
   };
   for (const group of groups || []) {
     if (!Array.isArray(group)) continue;
-    const domains = group.map(domainOf).filter(Boolean);
+    const domains = ready ? group.filter((d) => typeof d === 'string' && d) : group.map(domainOf).filter(Boolean);
     for (const d of domains) find(d);
     for (const d of domains.slice(1)) union(domains[0], d);
   }
@@ -459,17 +486,25 @@ export function httpAllowed(u) {
   try { return LOCAL_HOST.test(toURL(u).hostname); } catch { return false; }
 }
 
-export function matches(item, url, equiv) {
-  if (!item || !Array.isArray(item.uris)) return false;
+// The page side of matching, worked out once per page rather than once per item.
+const pageOf = (url) => {
   let page;
-  try { page = new URL(url); } catch { return false; }
-  const site = baseDomain(page.hostname);
-  const plainHttp = page.protocol === 'http:';
+  try { page = new URL(url); } catch { return null; }
+  return { url, page, site: baseDomain(page.hostname), plainHttp: page.protocol === 'http:' };
+};
+
+export function matches(item, url, equiv) {
+  const p = item && Array.isArray(item.uris) && pageOf(url);
+  return !!p && matchesPage(item, p, equiv);
+}
+
+function matchesPage(item, { url, page, site, plainHttp }, equiv) {
+  const known = item.dv === DOMAINS_VERSION && Array.isArray(item.d) && item.d.length === item.uris.length ? item.d : null;
   return item.uris.some((u, n) => {
     try {
       if (plainHttp && !httpAllowed(u)) return false;
       switch (item.m?.[n] ?? 0) {
-        case 0: { const d = domainOf(u); return !!d && (d === site || !!equiv?.get(site)?.has(d)); }
+        case 0: { const d = known ? known[n] : domainOf(u); return !!d && (d === site || !!equiv?.get(site)?.has(d)); }
         case 1: return toURL(u).host === page.host;
         case 2: { const s = toURL(u); return s.origin === page.origin && (url.startsWith(u) || page.href.startsWith(s.href)); } // Ward: same origin first
         case 3: return url === u;
@@ -483,8 +518,12 @@ export function matches(item, url, equiv) {
 }
 
 // The logins for a page, best first: last used (used: {'account:cipher': time}), then vault order (rank).
-export const forSite = (items, url, equiv, rank, used = {}) => (Array.isArray(items) ? items : []).filter((i) => matches(i, url, typeof equiv === 'function' ? equiv(i) : equiv))
-  .sort((x, y) => (used[`${y.a}:${y.id}`] || 0) - (used[`${x.a}:${x.id}`] || 0) || rank(x.a) - rank(y.a));
+export function forSite(items, url, equiv, rank, used = {}) {
+  const p = pageOf(url);
+  if (!p || !Array.isArray(items)) return [];
+  return items.filter((i) => i && Array.isArray(i.uris) && matchesPage(i, p, typeof equiv === 'function' ? equiv(i) : equiv))
+    .sort((x, y) => (used[`${y.a}:${y.id}`] || 0) - (used[`${x.a}:${x.id}`] || 0) || rank(x.a) - rank(y.a));
+}
 
 // --- passkeys (WebAuthn, ES256 only) --------------------------------------
 // Stored as the official clients store them (login.fido2Credentials, every field an EncString), so a passkey made here

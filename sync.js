@@ -18,7 +18,9 @@ export async function storeSync(local, accountId, sync) {
   // raw ciphers stored one key per item so editing reads just the one it needs
   await local.remove(old.filter((id) => !keep.has(id)).map((id) => `${p}c:${id}`));
   const d = sync.domains || {};
-  const eq = [...(d.equivalentDomains || []), ...(d.globalEquivalentDomains || []).filter((g) => !g.excluded).map((g) => g.domains)];
+  const raw = [...(d.equivalentDomains || []), ...(d.globalEquivalentDomains || []).filter((g) => !g.excluded).map((g) => g.domains)];
+  // stored as base domains, worked out once here instead of on every popup open (bw.equivalents)
+  const eq = { v: bw.DOMAINS_VERSION, groups: raw.filter(Array.isArray).map((g) => g.map((x) => bw.domainOf(x)).filter(Boolean)) };
   // only what decrypting needs; the rest of the profile (hint, names, security stamp) stays off disk
   const profile = { privateKey: sync.profile.privateKey, organizations: (sync.profile.organizations || []).map(({ id, key }) => ({ id, key })) };
   await local.set({ [`${p}profile`]: profile, [`${p}ids`]: ids, [`${p}eq`]: eq, ...Object.fromEntries(sync.ciphers.map((c) => [`${p}c:${c.id}`, c])) });

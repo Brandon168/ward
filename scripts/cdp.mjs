@@ -50,7 +50,7 @@ class Browser {
       const m = JSON.parse(e.data);
       if (m.id && b.pending.has(m.id)) {
         const { resolve, reject } = b.pending.get(m.id); b.pending.delete(m.id);
-        m.error ? reject(new Error(`${m.error.message} ${m.error.data || ''}`)) : resolve(m.result);
+        m.error ? reject(new Error(`${m.error.message} ${m.error.data || ''}`.trim())) : resolve(m.result);
       } else for (const l of b.listeners) l(m);
     };
     await new Promise((resolve, reject) => { b.ws.onopen = resolve; b.ws.onerror = () => reject(new Error('CDP connect failed')); });
@@ -61,7 +61,7 @@ class Browser {
     this.ws.send(JSON.stringify({ id, method, params, ...(sessionId && { sessionId }) }));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} timed out`)); }, 30000);
-      this.pending.set(id, { resolve: (v) => (clearTimeout(timer), resolve(v)), reject: (e) => (clearTimeout(timer), reject(e)) });
+      this.pending.set(id, { resolve: (v) => (clearTimeout(timer), resolve(v)), reject: (e) => (clearTimeout(timer), reject(Object.assign(e, { message: `${method}: ${e.message}` }))) });
     });
   }
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }

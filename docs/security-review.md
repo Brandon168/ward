@@ -43,6 +43,19 @@ before fixing. Status reflects the current `main`.
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
 
+## Speed work that touches matching (0.6.1)
+
+- Base domains for saved URIs are computed by `decryptVault` and stored with the cached list (`d`), tagged with the
+  Public Suffix List version (`dv`). Matching uses them only when the tag is the current list's and there is one per
+  URI; otherwise it recomputes. BW Lite once stored derived domains made without the suffix list and stopped
+  trusting them (480efd3); untagged ones, like those, are still never used. They live in the same trusted storage as
+  the URIs themselves, so they add no new way to influence matching.
+- `domainOf`/`normalizeHost` skip `URL` for plain ASCII hosts that `URL` would only lowercase (no punycode, no
+  numeric last label, no port or user info); `test.mjs` checks the result equals `URL`'s on tricky and 30,000 random
+  inputs.
+- `vendor/public_suffix_list.js` is generated in lookup form by `vendor/psl.sh`; `test.mjs` checks it against the
+  `.dat`.
+
 ## Two-step login (0.6.0)
 
 No new permissions. Ward now finishes logins that need an email code, a YubiKey OTP or a security key, besides an

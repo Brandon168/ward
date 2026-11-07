@@ -8,7 +8,9 @@ import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } fro
 const app = document.getElementById('app');
 const local = chrome.storage.local, session = chrome.storage.session; // session = memory only, gone when the browser quits
 const td = new TextDecoder();
-const collator = new Intl.Collator();
+// Created on first sort: the first Intl object loads locale data, which a popup or worker start shouldn't wait for.
+let collatorObj;
+const collator = { compare: (a, b) => (collatorObj ||= new Intl.Collator()).compare(a, b) };
 
 // accounts: ordered list (the order is the autofill priority) of
 //   { id, server, email, label, kdf, protectedKey, tokens, lastSync, persistKey? }
@@ -175,7 +177,7 @@ async function start() {
   await withStateLock(async () => {
     const latest = normalizedAccounts((await local.get('accounts')).accounts);
     adoptAccounts(latest);
-    const currentSession = await session.get(null);
+    const currentSession = await session.get(accounts.map((a) => `${a.id}:key`)); // keys only; the lists came with s
     for (const a of accounts) {
       const sessionKey = keyBytes(currentSession[`${a.id}:key`]);
       const persisted = keyBytes(a.persistKey);
@@ -200,6 +202,7 @@ async function start() {
   const problems = await loadVaults(s);
   await loadEquiv();
   vaultView();
+  globalThis.performance?.mark('ward:list'); // scripts/perf.mjs reads it: the list is in the DOM
   if (problems) status(problems);
   if (!mode) refreshStale();
 }
@@ -803,7 +806,8 @@ setInterval(() => document.querySelectorAll('.totp').forEach((b) => !b.classList
 // opens; any row you click) keeps its one-click actions visible; other rows show them on hover. Actions sit in fixed
 // slots (user, password, code) so they never shift, then Fill for what can be filled here. Clicking a row only
 // selects it; Fill, Enter or a double-click fills. Feedback appears on the button itself.
-let selectedKey = null, showAll = false;
+let selectedKey = null;
+const searchText = new WeakMap(); // item -> its search text, built on first search
 function vaultView() {
   if (mode === 'save' && !sv) return closeSave();
   if (pk) return passkeyView();
@@ -819,6 +823,7 @@ function vaultView() {
       const at = rows.findIndex((r) => r.key === selectedKey);
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        if (e.key === 'ArrowDown' && at === rows.length - 1) drawMore();
         const next = rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
         if (next) select(next.key, true);
       } else if (e.key === 'Enter' && rows[at]) primary(rows[at].item);
@@ -869,59 +874,96 @@ function vaultView() {
       avatar(i),
       h('div', { className: 'info' },
         h('b', {}, i.name || '(no name)', multi && h('span', { className: 'vaultdot', title: acct(i.a)?.label, style: `background:${COLORS[rank(i.a) % COLORS.length]}` })),
-        h('small', {}, sub(i), i.reprompt ? ' · 🔒' : '')),
-      actions(i));
+        h('small', {}, sub(i), i.reprompt ? ' · 🔒' : '')));
     el.addEventListener('click', () => select(keyOf(i)));
+    el.addEventListener('pointerenter', () => withActions(el, i));
     el.dataset.key = keyOf(i);
     return el;
   };
+  // A row's buttons are hidden unless it is hovered or selected, so they are built then (the first hover, or
+  // selection) rather than for every row drawn: a keystroke in the search builds a few elements, not hundreds.
+  const withActions = (el, i) => el.acts || el.append((el.acts = actions(i)));
   const select = (key, scroll) => {
     selectedKey = key;
-    for (const r of rows) r.el.classList.toggle('sel', r.key === key);
+    for (const r of rows) {
+      r.el.classList.toggle('sel', r.key === key);
+      if (r.key === key) withActions(r.el, r.item);
+    }
     if (scroll) rows.find((r) => r.key === key)?.el.scrollIntoView({ block: 'nearest' });
   };
-  const textOf = (i) => [i.name, i.username, ...(i.uris || []), i.card?.brand, i.card?.cardholderName, (i.card?.number || '').slice(-4),
-    i.identity?.firstName, i.identity?.lastName, i.identity?.email, i.identity?.city, i.identity?.company].filter(Boolean).join(' ').toLowerCase();
+  // Worked out once per view, not per keystroke: this site's logins, recent items, and each item's search text.
+  here = pageUrl ? bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used) : [];
+  const hereSet = new Set(here);
+  const byKey = new Map(vault.map((i) => [keyOf(i), i]));
+  const recentAll = Object.entries(st.used || {}).sort((a, b) => b[1] - a[1]).map(([k]) => byKey.get(k)).filter(Boolean);
+  const textOf = (i) => {
+    let t = searchText.get(i);
+    if (t === undefined) searchText.set(i, (t = [i.name, i.username, ...(i.uris || []), i.card?.brand, i.card?.cardholderName, (i.card?.number || '').slice(-4),
+      i.identity?.firstName, i.identity?.lastName, i.identity?.email, i.identity?.city, i.identity?.company].filter(Boolean).join(' ').toLowerCase()));
+    return t;
+  };
+  // Rows are drawn in chunks: the first CHUNK at once (the popup shows about ten), the rest when the list scrolls
+  // near its end or the arrow keys walk past the last drawn row. Typing never builds hundreds of rows.
+  const CHUNK = 30;
+  let queue = [], qi = 0, sentinel = null; // rows still to draw, and how far drawMore got
+  const more = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && drawMore(), { root: list, rootMargin: '200px' })
+    : { observe() {}, disconnect() {} };
+  const drawMore = () => {
+    if (qi >= queue.length) return false;
+    const out = [];
+    for (let n = 0; qi < queue.length && n < CHUNK;) {
+      const next = queue[qi++];
+      if (next.head) { out.push(next.head); continue; }
+      const el = itemRow(next.item);
+      rows.push({ key: keyOf(next.item), item: next.item, el });
+      out.push(el);
+      n++;
+    }
+    sentinel?.remove();
+    sentinel = null;
+    if (qi < queue.length) {
+      sentinel = h('div', { className: 'more' });
+      out.push(sentinel);
+    }
+    list.append(...out);
+    if (sentinel) more.observe(sentinel);
+    return true;
+  };
   const draw = () => {
-    here = pageUrl ? bw.forSite(vault, pageUrl, (i) => equiv.get(i.a), rank, st.used) : [];
     kinds.replaceChildren(...[[0, 'All'], ...KINDS.map(([t, label]) => [t, label])].map(([t, label]) =>
-      h('button', { className: t === kind ? 'on' : '', onclick: () => ((kind = t), (kindPicked = true), (selectedKey = null), (showAll = false), draw(), q.focus()) }, label)));
+      h('button', { className: t === kind ? 'on' : '', onclick: () => ((kind = t), (kindPicked = true), (selectedKey = null), draw(), q.focus()) }, label)));
     const s = q.value.trim().toLowerCase();
-    const ofKind = vault.filter((i) => !kind || typeOf(i) === kind);
+    const ofKind = kind ? vault.filter((i) => typeOf(i) === kind) : vault;
     const groups = [];
     if (s) {
       const hits = ofKind.filter((i) => textOf(i).includes(s));
-      groups.push([`${hits.length} match${hits.length === 1 ? '' : 'es'}`, [...hits.filter((i) => here.includes(i)), ...hits.filter((i) => !here.includes(i))]]);
+      groups.push([`${hits.length} match${hits.length === 1 ? '' : 'es'}`, [...hits.filter((i) => hereSet.has(i)), ...hits.filter((i) => !hereSet.has(i))]]);
     } else {
       const site = (!kind || kind === 1) ? here : [];
       if (site.length) groups.push([`For ${host}`, site]);
       if (!kind) {
-        const recent = Object.entries(st.used || {}).sort((a, b) => b[1] - a[1]).map(([k]) => vault.find((i) => keyOf(i) === k))
-          .filter((i) => i && !site.includes(i)).slice(0, 5);
+        const recent = recentAll.filter((i) => !hereSet.has(i)).slice(0, 5), shown = new Set([...site, ...recent]);
         if (recent.length) groups.push(['Recent', recent]);
-        const rest = ofKind.filter((i) => !site.includes(i) && !recent.includes(i));
-        groups.push([`All items · ${vault.length}`, rest]);
-      } else groups.push([KINDS.find(([t]) => t === kind)[1], ofKind.filter((i) => !site.includes(i))]);
+        groups.push([`All items · ${vault.length}`, ofKind.filter((i) => !shown.has(i))]);
+      } else groups.push([KINDS.find(([t]) => t === kind)[1], ofKind.filter((i) => !hereSet.has(i))]);
     }
     rows = [];
-    const out = [];
-    let budget = showAll || s ? 400 : 60; // a long vault renders the first rows; "Show all" draws the rest
+    queue = [];
+    qi = 0;
+    more.disconnect();
+    sentinel = null;
     for (const [label, items] of groups) {
       if (!items.length) continue;
       const head = h('div', { className: 'group' }, h('span', {}, label));
       if ((kind === 3 || kind === 4) && formPage && label === KINDS.find(([t]) => t === kind)?.[1])
         head.append(h('button', { className: 'link', title: `New ${kindName(kind)} from the form on this page`, onclick: () => fromPage(kind).catch((e) => status(e.message)) }, 'from page'));
-      out.push(head);
-      for (const i of items) {
-        if (budget-- <= 0) break;
-        const el = itemRow(i);
-        rows.push({ key: keyOf(i), item: i, el });
-        out.push(el);
-      }
+      queue.push({ head });
+      for (const item of items) queue.push({ item });
     }
-    if (budget < 0) out.push(h('button', { className: 'link', onclick: () => ((showAll = true), draw()) }, 'Show all'));
-    if (!rows.length) out.push(h('p', { className: 'empty' }, s ? 'Nothing matches.' : 'Nothing here yet.'));
-    list.replaceChildren(...out);
+    list.replaceChildren();
+    drawMore();
+    if (!rows.length) list.append(h('p', { className: 'empty' }, s ? 'Nothing matches.' : 'Nothing here yet.'));
     const keep = rows.find((r) => r.key === selectedKey);
     select(keep ? selectedKey : (here.length && (!kind || kind === 1) ? keyOf(here[0]) : s && rows[0] ? rows[0].key : null));
   };

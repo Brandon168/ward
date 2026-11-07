@@ -27,6 +27,12 @@ node scripts/e2e-twostep.mjs  # security key two-step through the real popup in 
 CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` in one job on every push, except pushes that only change
 Markdown or docs/.
 
+## Speed
+
+Ward must feel instant. Changes to the popup's start, the list, matching in `bw.js`, or the service worker's menu path
+are measured with `node scripts/perf.mjs` before and after (docs/performance.md has the method and budgets). Prefer
+work done once (at sync, per view) over work per keystroke or per item, and build UI only when it shows.
+
 ## UI work
 
 **The UI must stay consistent across every surface**: the toolbar popup, the windows Ward opens for a page (passkey,
