@@ -379,6 +379,21 @@ assert.deepEqual(bridgeRuntime.at(-1).options.authenticatorSelection, { authenti
 bridgeContext.chrome.runtime.sendMessage = () => { throw new Error('Extension context invalidated.'); }; // extension reloaded under the page
 await bridgeListeners.message({ source: bridgeWindow, data: { bwliteReq: 'bridge-5', kind: 'get', options: { challenge: 'c' } } });
 assert.equal(JSON.stringify(bridgePosts.at(-1).m), JSON.stringify({ bwliteRes: 'bridge-5', fallback: true }), 'a dead extension context hands the request to the browser');
+bridgeContext.chrome.runtime.sendMessage = async (m) => (bridgeRuntime.push(m), { bwliteRes: m.bwliteReq, fallback: true });
+await bridgeListeners.message({ source: bridgeWindow, data: { bwliteReq: 'bridge-7', kind: 'create', conditional: true, options: { challenge: 'c' } } });
+assert.equal(bridgeRuntime.at(-1).conditional, undefined, 'only sign-in can be passkey autofill');
+bridgeContext.chrome.runtime.sendMessage = async (m) => (bridgeRuntime.push(m), { bwliteRes: m.bwliteReq, hold: true, secret: 'discard' });
+await bridgeListeners.message({ source: bridgeWindow, data: { bwliteReq: 'bridge-6', kind: 'get', conditional: true, options: { challenge: 'c' } } });
+assert.equal(bridgeRuntime.at(-1).conditional, true, 'passkey autofill is marked as such');
+assert.equal(JSON.stringify(bridgePosts.at(-1).m), JSON.stringify({ bwliteRes: 'bridge-6', hold: true }));
+assert.equal(bridgeContext.wardHeld, 'bridge-6', 'inpage.js can see that Ward holds it');
+bridgeListeners.runtime({ bwliteRes: 'bridge-6', fallback: true, device: true, secret: 'discard' });
+assert.equal(JSON.stringify(bridgePosts.at(-1).m), JSON.stringify({ bwliteRes: 'bridge-6', fallback: true, device: true }));
+assert.equal(bridgeContext.wardHeld, null, 'answered: no longer held');
+bridgeContext.wardHeld = 'bridge-8';
+await bridgeListeners.message({ source: bridgeWindow, data: { wardCondEnd: 'bridge-8', evil: 'discard' } });
+assert.equal(JSON.stringify(bridgeRuntime.at(-1)), JSON.stringify({ wardCondEnd: 'bridge-8' }), 'an abort carries only its id');
+assert.equal(bridgeContext.wardHeld, null);
 console.log('bridge boundary checks ok');
 
 // Minimal Chrome storage/runtime harness for service-worker regressions; no browser or Docker is needed.
@@ -631,6 +646,75 @@ assert.equal((await sendRuntime({ bwliteSaveOpen: subKey }, { tab: { id: 7 }, fr
   assert.equal(alarmsCreated.length, a + 1, 'a page cannot');
   chrome.tabs.query = realQuery;
   await sessionStore.remove(['m:key', 'm:list']);
+  await localStore.set({ accounts: [] });
+}
+{ // Ward: passkey autofill (mediation: conditional). Held when an open vault has a passkey for it; the menu lists the
+  // passkeys first; a pick signs and answers that document only, once; "device", abort, lock and the setting give it back.
+  const made = await bw.passkeyCreate({ challenge, rp: { name: 'Pk' }, user: { id: 'dXNlcg', name: 'ben' } }, 'https://pk.example', 'pk.example');
+  await localStore.set({ accounts: [{ id: 'p', server: 'https://vault.example', email: 'p@x.y', label: 'P' }], used: {} });
+  const list = JSON.stringify([
+    { id: 'k1', name: 'Pk site', username: 'ben', password: '', uris: ['https://pk.example'], passkeys: [made.passkey] },
+    { id: 'k2', name: 'Pk site', username: 'ann', password: 'pw', uris: ['https://pk.example'] },
+    { id: 'k3', name: 'Pw site', username: 'cy', password: 'pw', uris: ['https://pw.example'] }]);
+  await sessionStore.set({ 'p:key': testSessionKey, 'p:list': list });
+  const page = { origin: 'https://pk.example', url: 'https://pk.example/login', tab: { id: 31 }, frameId: 0, documentId: 'doc-1' };
+  const ask = (id, options = { challenge }, sender = page) => sendRuntime({ bwliteReq: id, kind: 'get', conditional: true, options }, sender);
+  const windows = createdWindows.length;
+  assert.deepEqual(await ask('c-1'), { bwliteRes: 'c-1', hold: true }, 'held: Ward has a passkey for the site');
+  assert.equal(createdWindows.length, windows, 'passkey autofill opens no window');
+  const rows = await sendRuntime({ bwliteMenu: true, pk: true }, page);
+  assert.deepEqual(rows.map((r) => [r.device ? 'device' : r.username, !!r.pk]), [['ben', true], ['ann', false], ['device', false]],
+    'passkeys first, their logins not repeated, then "Use device or security key"');
+  assert.ok(!(await sendRuntime({ bwliteMenu: true, pk: true }, { ...page, documentId: 'doc-2' })).some((r) => r.pk), 'another document gets no passkey rows');
+  assert.ok(!(await sendRuntime({ bwliteMenu: true, pk: true }, { ...page, frameId: 2 })).some((r) => r.pk), 'nor does a child frame');
+  assert.equal(await sendRuntime({ wardPasskey: rows[0].k }, { ...page, frameId: 2 }), null, 'a child frame cannot pick');
+  assert.equal(await sendRuntime({ wardPasskey: rows[0].k }, { ...page, documentId: 'doc-2' }), null, 'nor can another document');
+  assert.equal(await sendRuntime({ wardPasskey: 'p:k2:0' }, page), null, 'a login without that passkey signs nothing');
+  assert.equal(await sendRuntime({ wardPasskey: rows[0].k }, page), true);
+  const [tabId, res, to] = sentTabs.at(-1);
+  assert.deepEqual([tabId, res.bwliteRes, to], [31, 'c-1', { documentId: 'doc-1' }], 'the answer goes to the requesting document');
+  const as = res.result.response;
+  assert.deepEqual(JSON.parse(fromB64u(as.clientDataJSON)), { type: 'webauthn.get', challenge, origin: 'https://pk.example', crossOrigin: false });
+  const signed = Buffer.concat([fromB64u(as.authenticatorData), nodeCrypto.createHash('sha256').update(fromB64u(as.clientDataJSON)).digest()]);
+  assert.ok(nodeCrypto.verify('sha256', signed, { key: fromB64u(made.result.response.publicKey), format: 'der', type: 'spki' }, fromB64u(as.signature)), 'the assertion verifies');
+  assert.ok((await localStore.get('used')).used['p:k1'], 'a passkey sign-in counts as use');
+  assert.equal(await sendRuntime({ wardPasskey: rows[0].k }, page), null, 'answered once');
+  assert.ok(!(await sendRuntime({ bwliteMenu: true, pk: true }, page)).some((r) => r.pk), 'and no longer offered');
+
+  await ask('c-2');
+  assert.equal(await sendRuntime({ wardPasskey: 'device' }, page), true);
+  assert.deepEqual(sentTabs.at(-1)[1], { bwliteRes: 'c-2', fallback: true, device: true }, '"Use device or security key" hands it to the browser');
+  await ask('c-3');
+  await sendRuntime({ wardCondEnd: 'c-other' }, page);
+  assert.equal(sessionStore.data.get('cpk:31')?.id, 'c-3', 'another id cannot end it');
+  await sendRuntime({ wardCondEnd: 'c-3' }, { ...page, documentId: 'doc-2' });
+  assert.ok(sessionStore.data.has('cpk:31'), 'nor can another document');
+  await sendRuntime({ wardCondEnd: 'c-3' }, page);
+  assert.equal(sessionStore.data.has('cpk:31'), false, 'the page aborting ends it');
+  await ask('c-4');
+  await sessionStore.remove(['p:key', 'p:list']);
+  const sentBefore = sentTabs.length;
+  assert.ok(!(await sendRuntime({ bwliteMenu: true, pk: true }, page)).some((r) => r.pk), 'locked: no passkey rows');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(sentTabs.slice(sentBefore).map((x) => x[1]), [{ bwliteRes: 'c-4', fallback: true }], 'locked: the browser takes the request');
+  assert.equal((await ask('c-5')).fallback, true, 'locked: not held');
+  await sessionStore.set({ 'p:key': testSessionKey, 'p:list': list });
+  assert.equal((await ask('c-6', { challenge }, { ...page, frameId: 1 })).fallback, true, 'only the top frame');
+  assert.equal((await ask('c-8', { challenge }, { ...page, origin: 'https://none.example', url: 'https://none.example/' })).fallback, true,
+    'nothing in Ward for the site: the browser');
+  // Only passwords for the site: held all the same, so the browser's list doesn't cover Ward's menu; its passkeys are
+  // one click away ("Use device or security key"). Same when the site wants a credential Ward doesn't have.
+  const pw = { ...page, origin: 'https://pw.example', url: 'https://pw.example/login' };
+  assert.equal((await ask('c-7', { challenge }, pw)).hold, true, 'logins only: held');
+  assert.deepEqual((await sendRuntime({ bwliteMenu: true, pk: true }, pw)).map((r) => r.device ? 'device' : r.username), ['cy', 'device']);
+  assert.equal((await ask('c-7b', { challenge, allowCredentials: [{ id: 'b3RoZXI', type: 'public-key' }] })).hold, true);
+  assert.deepEqual((await sendRuntime({ bwliteMenu: true, pk: true }, page)).map((r) => r.device ? 'device' : r.username), ['ben', 'ann', 'device'],
+    'a credential Ward lacks: no passkey rows');
+  await localStore.set({ passkeyMenu: false });
+  assert.equal((await ask('c-9')).fallback, true, 'setting off: the browser');
+  await localStore.set({ passkeyMenu: true });
+  assert.equal((await ask('c-10')).hold, true);
+  await sessionStore.remove(['p:key', 'p:list', 'cpk:31']);
   await localStore.set({ accounts: [] });
 }
 console.log('background cache, write, RP, and save-scope checks ok');
@@ -1087,7 +1171,7 @@ for (const pw of ['wrong', 'right']) {
   // Settings: clearing off means no clear request
   up.api.settingsView();
   const boxes = (node) => (node?.tagName === 'INPUT' && node.type === 'checkbox' ? [node] : []).concat(...(node?.children || []).map(boxes));
-  const clearBox = boxes(up.app)[2];
+  const clearBox = boxes(up.app)[3]; // after the two save offers and passkey autofill
   clearBox.checked = false;
   await clearBox.listeners.change();
   assert.equal((await up.local.get('clearClipboard')).clearClipboard, false);
@@ -1136,6 +1220,73 @@ console.log('design tokens in step ok');
   assert.equal(JSON.stringify(await ctx.PublicKeyCredential.getClientCapabilities()), '{"conditionalGet":true,"userVerifyingPlatformAuthenticator":true}',
     'client capabilities keep the native fields and add the platform authenticator');
   console.log('page credential checks ok');
+}
+{ // page.js passkey autofill: Ward holds it and answers, or the browser gets it (no passkey, "device", no answer);
+  // the page's AbortSignal ends it; cancelling the browser's prompt after "device" goes back to Ward.
+  const listeners = new Set(), posted = [], native = [], timers = [];
+  let ward = () => {}, nativeAnswer = async () => 'native';
+  const ctx = {
+    btoa, atob, crypto, clearTimeout, DOMException, AbortController,
+    setTimeout: (f, ms) => (ms === 5e3 ? timers.push(f) : setTimeout(f, ms)),
+    PublicKeyCredential: class {}, AuthenticatorAssertionResponse: class {}, AuthenticatorAttestationResponse: class {},
+    navigator: { credentials: { create: async () => null, get: (o) => (native.push(o), nativeAnswer(o)) } },
+    addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f),
+    postMessage: (m) => (posted.push(m), queueMicrotask(() => ward(m))),
+  };
+  ctx.window = ctx;
+  vm.runInNewContext(await readFile('./page.js', 'utf8'), ctx);
+  const win = vm.runInContext('window', ctx);
+  const say = (data) => [...listeners].forEach((f) => f({ source: win, data }));
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  const get = (extra) => ctx.navigator.credentials.get({ mediation: 'conditional', publicKey: { challenge: new Uint8Array([1]) }, ...extra });
+  const result = { id: 'aWQ', rawId: 'aWQ', type: 'public-key', clientExtensionResults: {},
+    response: { clientDataJSON: 'e30', authenticatorData: 'AA', signature: 'AA', userHandle: null } };
+
+  ward = (m) => m.bwliteReq && say({ bwliteRes: m.bwliteReq, fallback: true });
+  assert.equal(await get(), 'native', 'no passkey in Ward: the browser takes it');
+  assert.equal(native.at(-1).mediation, 'conditional');
+  assert.equal(posted.at(-1).conditional, true, 'asked as passkey autofill');
+
+  ward = (m) => m.bwliteReq && say({ bwliteRes: m.bwliteReq, hold: true });
+  let p = get(), done = false;
+  p.then(() => (done = true));
+  await tick();
+  assert.equal(done, false, 'held: pending until a pick');
+  const n = native.length;
+  say({ bwliteRes: posted.at(-1).bwliteReq, result });
+  assert.equal((await p).id, 'aWQ', 'a pick in Ward\'s menu answers it');
+  assert.equal(native.length, n, 'without the browser');
+
+  p = get();
+  await tick();
+  nativeAnswer = async () => { throw new DOMException('cancelled', 'NotAllowedError'); };
+  const first = posted.at(-1).bwliteReq;
+  say({ bwliteRes: first, fallback: true, device: true });
+  await tick();
+  assert.equal(native.at(-1).mediation, 'optional', '"Use device or security key" opens the browser\'s prompt');
+  assert.ok(posted.at(-1).bwliteReq && posted.at(-1).bwliteReq !== first, 'cancelling it goes back to Ward');
+  nativeAnswer = async () => 'native';
+  say({ bwliteRes: posted.at(-1).bwliteReq, result });
+  assert.equal((await p).id, 'aWQ');
+
+  const ac = new AbortController();
+  p = get({ signal: ac.signal });
+  await tick();
+  const held = posted.at(-1).bwliteReq;
+  ac.abort();
+  await assert.rejects(p, (e) => e.name === 'AbortError', 'the page can abort it');
+  assert.equal(posted.at(-1).wardCondEnd, held, 'and Ward drops it');
+  say({ bwliteRes: held, result }); // a late pick changes nothing
+  await assert.rejects(get({ signal: AbortSignal.abort() }), (e) => e.name === 'AbortError', 'an aborted signal fails at once');
+
+  ward = () => {};
+  p = get();
+  await tick();
+  const silent = posted.at(-1).bwliteReq;
+  timers.at(-1)();
+  assert.equal(await p, 'native', 'no answer from Ward: the browser takes it');
+  assert.equal(posted.at(-1).wardCondEnd, silent, 'and Ward drops it');
+  console.log('page passkey autofill checks ok');
 }
 const inpageSource = await readFile('./inpage.js', 'utf8');
 { // a click on a page with no password field and no single username-like field (Google's OAuth consent page) used to

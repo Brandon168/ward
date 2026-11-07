@@ -43,9 +43,35 @@
     postMessage({ bwliteReq: id, kind, options: toJSON(publicKey) }, '*');
   });
 
-  // Passkey autofill (mediation: conditional) stays with the browser.
+  // Passkey autofill (mediation: conditional): Ward holds it if it has a passkey for the site (its field menu offers it),
+  // else the browser gets it. "device": the browser's prompt; cancelling that returns to Ward. The signal aborts.
+  const conditional = (o) => new Promise((resolve, reject) => {
+    const signal = o.signal;
+    let id, t;
+    const end = () => (removeEventListener('message', on), clearTimeout(t), signal?.removeEventListener('abort', abort));
+    const abort = () => (end(), postMessage({ wardCondEnd: id }, '*'), reject(signal.reason));
+    const on = (e) => {
+      const r = e.source === window && e.data?.bwliteRes === id && e.data;
+      if (!r) return;
+      if (r.hold) return clearTimeout(t);
+      end();
+      if (r.result) return resolve(credential(r.result));
+      if (r.device) return native.get({ ...o, mediation: 'optional' }).then(resolve, (x) => (signal?.aborted ? reject(x) : start()));
+      native.get(o).then(resolve, reject);
+    };
+    const start = () => {
+      if (signal?.aborted) return reject(signal.reason);
+      id = crypto.randomUUID();
+      addEventListener('message', on);
+      signal?.addEventListener('abort', abort, { once: true });
+      t = setTimeout(() => (postMessage({ wardCondEnd: id }, '*'), on({ source: window, data: { bwliteRes: id, fallback: true } })), 5e3);
+      postMessage({ bwliteReq: id, kind: 'get', conditional: true, options: toJSON(o.publicKey) }, '*');
+    };
+    start();
+  });
   const wrap = (kind) => async function (o) {
-    if (!o?.publicKey || o.mediation === 'conditional') return native[kind](o);
+    if (!o?.publicKey) return native[kind](o);
+    if (o.mediation === 'conditional') return kind === 'get' ? conditional(o) : native[kind](o);
     const r = await ask(kind, o.publicKey);
     if (r.fallback) return native[kind](o);
     if (r.error) throw new DOMException(r.error.message, r.error.name);

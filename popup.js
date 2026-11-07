@@ -137,7 +137,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'neverSave', 'clearClipboard', 'generator', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'passkeyMenu', 'neverSave', 'clearClipboard', 'generator', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -1056,6 +1056,8 @@ function settingsView() {
     toggle('offerLogins', 'Offer to save new and changed logins', 'After you sign in with a password Ward does not have yet'),
     toggle('offerForms', 'Offer to save cards and addresses', 'After you submit a checkout or address form with a card or address you typed. Off: Ward does not watch card or address fields at all.'),
     h('p', { className: 'muted' }, 'Never offered on these sites:'), neverList,
+    h('h2', {}, 'Passkeys'),
+    toggle('passkeyMenu', 'Passkey sign-in in Ward\'s menu under sign-in fields', 'When a site offers passkey sign-in on its username field, Ward\'s menu there lists your passkeys for it first, and the browser\'s own list stays out of the way ("Use device or security key" opens it). Off: the browser shows its list, on top of Ward\'s menu.'),
     h('h2', {}, 'Copying'),
     toggle('clearClipboard', 'Clear copied passwords and codes after 30 s', 'Usernames and emails are left alone. The clipboard is emptied even if you copied something else since.'),
     h('h2', {}, 'Locking'),

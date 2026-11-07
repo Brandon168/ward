@@ -67,7 +67,9 @@ for (const [file, name, view, hash] of VIEWS) {
 
 // preview/ward-inpage.html: a sample sign-in page running the real inpage.js (the menu under login fields and the
 // save bar), with a fake chrome.runtime. Click the username or password field to open the menu.
-const page = `<!doctype html>
+// preview/ward-inpage-passkey.html: the same page asking for passkey autofill, which Ward holds (bridge.js would set
+// wardHeld), so the menu lists the site's passkey first and ends with "Use device or security key".
+const inpagePage = (passkey) => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -86,7 +88,10 @@ const page = `<!doctype html>
     { k: 'v:2', name: 'examplebank.com', username: 'annlee84', password: 'pw2' },
     { k: 'v:3', name: 'Example Bank (business)', username: 'ann@example.com', password: 'pw3' },
   ];
-  const listeners = [];
+  const listeners = [];${passkey ? `
+  window.wardHeld = 'preview';
+  logins.splice(0, 1, { k: 'v:1:0', pk: true, name: 'Example Bank', username: 'ann.lee' }); // its login isn't listed twice
+  logins.push({ k: 'device', device: true });` : ''}
   window.chrome = { runtime: {
     sendMessage: async (m) => m.bwliteMenu ? logins.map(({ password, ...l }) => l)
       : m.bwliteFillKey ? logins.find((l) => l.k === m.bwliteFillKey) : null,
@@ -98,12 +103,14 @@ const page = `<!doctype html>
 <script>${inline(read('inpage.js'))}</script>
 </head>
 <body>
-<form onsubmit="return false"><label>Username<input name="username" autocomplete="username"></label>
+<form onsubmit="return false"><label>Username<input name="username" autocomplete="username${passkey ? ' webauthn' : ''}"></label>
 <label>Password<input type="password" name="password"></label><button>Sign in</button></form>
 </body>
 </html>
 `;
+const page = inpagePage(false);
 writeFileSync(join(root, 'preview', 'ward-inpage.html'), page);
+writeFileSync(join(root, 'preview', 'ward-inpage-passkey.html'), inpagePage(true));
 
 // preview/ward-twostep-key.html: the small window Ward opens on the vault server for a security key (twostep.js runs
 // there with the browser's own prompt on top). Here the prompt never answers.
@@ -119,3 +126,4 @@ const keyPage = `<!doctype html>
 writeFileSync(join(root, 'preview', 'ward-twostep-key.html'), keyPage);
 console.log('wrote preview/ward-twostep-key.html');
 console.log(`wrote preview/ward-inpage.html (${Math.round(page.length / 1024)} KB)`);
+console.log('wrote preview/ward-inpage-passkey.html');

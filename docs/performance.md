@@ -31,6 +31,10 @@ Most of a popup open is now the browser's: creating the popup takes ~265 ms on t
 code runs, and an empty extension popup paints 52 ms after it starts. Ward adds about 50 ms on top: loading its
 modules (~17 ms, mostly bytes: `bw.js` and the suffix list), storage and the startup lock (~14 ms), and drawing.
 
+0.7.0 (passkey autofill) against 0.6.1, five back-to-back runs each (500 items, alternating order): warm in-page
+menu 14.3 → 14.3 ms, asleep 75.7 → 79.9 ms (within run-to-run spread; lower in the reversed runs), Fill 8.0 → 7.7 ms,
+popup list 71.5 → 70.4 ms. The menu asks for passkeys only on pages whose passkey request Ward holds.
+
 ## What made the difference
 
 - **Matching a page against the vault** no longer parses every saved URL: base domains are worked out when the vault

@@ -78,6 +78,10 @@ Loading from a specific commit means nothing changes until you pull and reload o
 
 - Logins: search, fill (popup, in-page menu under the login field, Cmd+Shift+L), copy, add, edit, delete
 - TOTP codes, passkeys (stored in Bitwarden's format, so the official apps can use them), save/update prompts
+- Passkey autofill: when a site offers passkey sign-in on its username field, Ward's menu under that field lists
+  your passkeys for the site first and one click signs in; the browser's own passkey list no longer covers Ward's
+  menu. "Use device or security key" there hands the sign-in to the browser (its saved passkeys, a phone, a security
+  key). Setting: Passkeys.
 - Two-step login: authenticator app, email code (Ward asks the server to send it), YubiKey, or a security key /
   passkey (a small window on your server shows the browser's prompt). The popup can close while you fetch the code.
 - Generator (dice button): passwords (length, character sets, no look-alikes), passphrases from the EFF word list,

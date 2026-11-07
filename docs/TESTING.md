@@ -41,6 +41,14 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
      support WebAuthn PRF for extensions.
 9. **Passkeys**: optional; sign in to a site with a passkey stored in your vault. Ward's window says "Sign in to <site>"
    and lists your passkeys for it; **Sign in** answers, **Use device or security key** hands the request to the browser.
+   - **Passkey autofill (0.7.0)**: on a site that offers passkeys on its username field (e.g. a site where you saved a
+     passkey with Ward), click the username field: Ward's menu shows "Passkey · <you>" first, with no browser
+     passkey list on top. Click it: you are signed in, no window. **Use device or security key** at the bottom opens
+     the browser's prompt (phone, security key); cancel it and click the field again: Ward's passkey is back.
+   - On a site where Ward has only passwords and the passkey is in the browser or on your phone (e.g. chase.com):
+     only Ward's menu shows; **Use device or security key** opens the browser's prompt with that passkey.
+   - The site's own "sign in with passkey" button still opens Ward's window. Lock Ward and click the field again: the
+     browser's passkey list shows instead. Settings → Passkeys off: the browser's list, as before 0.7.0.
 10. **Cards / Identities / Notes** (tabs under the toolbar):
     - Add a test card (e.g. `4111 1111 1111 1111`, any future expiry, `123`) and an identity; open a secure note.
     - On a real checkout page, open Ward (it opens on Cards when the page looks like checkout and has no logins),
@@ -90,6 +98,8 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
   ```
 - Security key: with that container (`DOMAIN=https://vault.test` matters), `node scripts/e2e-twostep.mjs` logs in through
   Ward's real popup in headless Chromium with a virtual authenticator.
+- Passkey autofill: with the same container, `node scripts/e2e-passkey.mjs` signs in on a test page from Ward's in-page
+  menu (and checks the signature), checks the page's abort and "Use device or security key" (a virtual authenticator).
 
 ## What's not there yet
 

@@ -21,6 +21,8 @@
 - Generator: passwords with options, passphrases (EFF word list), usernames; remembered options; Use from the login form (0.5.0)
 - Two-step login: email codes, YubiKey, security keys/passkeys (window on the server), method picker, resumes after the popup closes (0.6.0)
 - Speed: search ~15x less work per keystroke, in-page menu 3x faster, popup paints ~40% sooner; docs/performance.md (0.6.1)
+- Passkey autofill: Ward answers a site's passkey autofill request from its own menu under the field (passkeys first,
+  one click signs in, "Use device or security key" hands it to the browser); honours the site's abort; setting (0.7.0)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

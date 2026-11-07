@@ -16,7 +16,7 @@ if (!globalThis.bwliteFill) {
     const root = document.activeElement?.closest('form') || document;
     const all = [...root.querySelectorAll('input')].filter(visible), pw = all.find((i) => i.type === 'password');
     const texts = (pw ? all.slice(0, all.indexOf(pw)) : all).filter((i) => ['text', 'email', 'tel'].includes(i.type));
-    const user = pw ? texts.at(-1) : texts.find((i) => i.type === 'email' || /user|email|login/i.test(i.autocomplete + i.name + i.id)) || (loose && texts.length === 1 ? texts[0] : undefined);
+    const user = pw ? texts.at(-1) : texts.find((i) => i.type === 'email' || /user|email|login|webauthn/i.test(i.autocomplete + i.name + i.id)) || (loose && texts.length === 1 ? texts[0] : undefined);
     return { all, user, pw };
   };
 
@@ -81,6 +81,16 @@ if (!globalThis.bwliteFill) {
       --line: #e3e6ea; --accent: #2f6fec; box-shadow: 0 8px 24px #0f172a1f, 0 1px 3px #0f172a14; } }`;
   const PALETTE = ['#2f6fec', '#e2553f', '#16a34a', '#9333ea', '#ea8a0c', '#0891b2', '#db2777', '#4b5563']; // popup.js
   const hue = (s) => PALETTE[[...String(s || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
+  const pick = (b, message, fillKey) => b.addEventListener('click', async (e) => {
+    // the page can hide this menu and draw a decoy over or under it: act only on a click on the visible menu
+    const verdict = genuine(e);
+    if (verdict === 'wait') return;
+    if (verdict !== 'ok') return closeMenu();
+    closeMenu();
+    if (message) return chrome.runtime.sendMessage(message).catch(() => {});
+    const c = await chrome.runtime.sendMessage({ bwliteFillKey: fillKey }).catch(() => null);
+    if (c) bwliteFill(c.username, c.password, c.code);
+  });
   function showMenu(field, logins) {
     const r = field.getBoundingClientRect();
     menuFor = field;
@@ -95,28 +105,31 @@ if (!globalThis.bwliteFill) {
       .av { width: 28px; height: 28px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; }
       .info { flex: 1; min-width: 0; }
       b, small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      b { font-weight: 600; } small { color: var(--muted); font-size: 11.5px; }`));
+      b { font-weight: 600; } small { color: var(--muted); font-size: 11.5px; }
+      .link { margin-top: 4px; padding: 7px 8px 3px; border-top: 1px solid var(--line); border-radius: 0; color: var(--muted); font-size: 12px; }
+      .link:hover { background: none; color: var(--fg); }`));
     const box = root.appendChild(el('div'));
     box.className = 'box';
     box.appendChild(el('div', 'Ward')).className = 'head';
-    for (const l of logins) {
+    for (const l of logins.filter((x) => !x.device)) {
       const b = box.appendChild(document.createElement('button'));
       const av = el('span', (l.name || '?').trim()[0]?.toUpperCase() || '?');
       av.className = 'av';
       av.style.background = hue(l.name);
       const info = el('span');
       info.className = 'info';
-      info.append(el('b', l.name || '(no name)'), el('small', [l.username || '(no username)', l.vault].filter(Boolean).join(' · ')));
+      const sub = [l.pk && 'Passkey', l.username || '(no username)', l.vault].filter(Boolean).join(' · ');
+      info.append(el('b', l.name || '(no name)'), el('small', sub));
+      info.title = `${l.name || '(no name)'}\n${sub}`;
       b.append(av, info);
-      b.addEventListener('click', async (e) => {
-        // the page can hide this menu and draw a decoy over or under it: fill only a click on the visible menu
-        const verdict = genuine(e);
-        if (verdict === 'wait') return;
-        if (verdict !== 'ok') return closeMenu();
-        closeMenu();
-        const c = await chrome.runtime.sendMessage({ bwliteFillKey: l.k }).catch(() => null);
-        if (c) bwliteFill(c.username, c.password, c.code);
-      });
+      // a passkey row answers the page's passkey autofill request (background.js signs); the others fill
+      pick(b, l.pk ? { wardPasskey: l.k } : null, l.k);
+    }
+    if (logins.some((l) => l.device)) { // Ward holds the page's passkey autofill request
+      const b = box.appendChild(el('button', 'Use device or security key'));
+      b.className = 'link';
+      b.title = 'Hand this sign-in to the browser: a phone, security key or the computer\'s own passkeys';
+      pick(b, { wardPasskey: 'device' });
     }
     root.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field so the click lands
     document.documentElement.append(menu);
@@ -136,7 +149,8 @@ if (!globalThis.bwliteFill) {
     closeMenu();
     const { user, pw } = loginFields(false);
     if ((f !== user && f !== pw) || f.autocomplete === 'new-password' || !userFocused(f)) return;
-    const logins = await chrome.runtime.sendMessage({ bwliteMenu: true }).catch(() => null);
+    // wardHeld (bridge.js): Ward holds this page's passkey autofill request, so ask for its passkeys too
+    const logins = await chrome.runtime.sendMessage({ bwliteMenu: true, ...(globalThis.wardHeld && { pk: true }) }).catch(() => null);
     if (logins?.length && document.activeElement === f && !menu) showMenu(f, logins);
   }
   // click too: a field the page focused before this script ran (autofocus) gets no focusin when clicked

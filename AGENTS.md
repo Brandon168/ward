@@ -22,6 +22,7 @@ node scripts/guard.mjs        # security guard rails (permissions, size budgets)
 node test.mjs --integration   # against a throwaway Vaultwarden on 127.0.0.1:8099 (container `ward-vw`, see README)
 MAILPIT=http://localhost:8025 node test.mjs --integration   # adds email two-step (Vaultwarden mailing to Mailpit, docs/TESTING.md)
 node scripts/e2e-twostep.mjs  # security key two-step through the real popup in Chromium; run after touching that flow
+node scripts/e2e-passkey.mjs  # passkey autofill through the real popup and in-page menu; run after touching page.js, bridge.js, the menu or passkeys in background.js
 ```
 
 CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` in one job on every push, except pushes that only change
@@ -49,9 +50,10 @@ Preview:
 
 - `node scripts/preview.mjs` builds, in `preview/` (git-ignored): `ward-popup.html` (the real popup with sample data
   from `scripts/preview-shim.js`), one file per extension window (`ward-passkey*.html`, `ward-save*.html`) and
-  `ward-inpage.html` (a sample sign-in page running the real inpage.js: field menu, save bar). Rebuild after every UI
-  change. It must keep working in a sandboxed HTML preview panel: inline scripts and blob: modules only, no network,
-  storage, clipboard or Web Locks.
+  `ward-inpage.html` (a sample sign-in page running the real inpage.js: field menu, save bar;
+  `ward-inpage-passkey.html` is the same page with passkey autofill). Rebuild after every UI change. It must keep
+  working in a sandboxed HTML preview panel: inline scripts and blob: modules only, no network, storage, clipboard or
+  Web Locks.
 - `node scripts/screenshots.mjs` regenerates the README screenshots (`docs/screenshots/`) from those previews. Rerun
   it when a change alters what they show.
 - `node scripts/compare-image.mjs` turns `docs/benchmark-results.json` (from `scripts/bench.mjs`) into

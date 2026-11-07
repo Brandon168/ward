@@ -19,6 +19,8 @@ const response = (m, id) => {
   if (!m || m.bwliteRes !== id) return null;
   const out = { bwliteRes: id };
   if (m.fallback === true) out.fallback = true;
+  if (m.hold === true) out.hold = true; // passkey autofill (page.js conditional): Ward holds it
+  if (m.device === true) out.device = true; // "Use device or security key" in Ward's menu
   if (m.error && typeof m.error.name === 'string' && typeof m.error.message === 'string')
     out.error = { name: m.error.name, message: m.error.message };
   if (m.result && typeof m.result === 'object') {
@@ -36,20 +38,29 @@ const response = (m, id) => {
   }
   return out;
 };
+// wardHeld: the passkey autofill request Ward holds here; inpage.js (same world and frame) then asks for passkey rows
 const send = (m, id) => {
   const r = response(m, id);
-  if (r) postMessage(r, location.origin);
+  if (!r) return;
+  if (r.hold) globalThis.wardHeld = id;
+  else if (globalThis.wardHeld === id) globalThis.wardHeld = null;
+  postMessage(r, location.origin);
 };
 
 addEventListener('message', (e) => {
   if (e.source !== window || !e.data) return;
-  const { bwliteReq: id, kind } = e.data;
+  const { bwliteReq: id, kind, wardCondEnd: gone } = e.data;
+  if (idOf(gone)) { // the page aborted its passkey autofill request
+    if (globalThis.wardHeld === gone) globalThis.wardHeld = null;
+    try { chrome.runtime.sendMessage({ wardCondEnd: gone }).catch(() => {}); } catch {}
+    return;
+  }
   if (!idOf(id)) return;
   const o = options(kind, e.data.options);
   if (!o) return send({ bwliteRes: id, fallback: true }, id);
   const fallback = () => send({ bwliteRes: id, fallback: true }, id);
   try {
-    chrome.runtime.sendMessage({ bwliteReq: id, kind, options: o }).then((r) => r && send(r, id), fallback);
+    chrome.runtime.sendMessage({ bwliteReq: id, kind, options: o, ...(e.data.conditional === true && kind === 'get' && { conditional: true }) }).then((r) => r && send(r, id), fallback);
   } catch { fallback(); } // "Extension context invalidated": Ward was reloaded or updated under this page
 });
 chrome.runtime.onMessage.addListener((m) => m?.bwliteRes && send(m, m.bwliteRes));

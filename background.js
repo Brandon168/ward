@@ -22,7 +22,7 @@ async function vault() {
 }
 async function build() {
   const version = stateVersion;
-  const stored = await local.get(['accounts', 'used', 'neverSave', 'offerLogins', 'offerForms']);
+  const stored = await local.get(['accounts', 'used', 'neverSave', 'offerLogins', 'offerForms', 'passkeyMenu']);
   const seen = new Set();
   const accounts = Array.isArray(stored.accounts) ? stored.accounts.filter((a) => accountId(a?.id) && !seen.has(a.id) && seen.add(a.id)) : [];
   const used = stored.used && typeof stored.used === 'object' ? stored.used : {};
@@ -95,7 +95,8 @@ async function build() {
   const equiv = new Map(accounts.map((a) => [a.id, bw.equivalents(eq[`${a.id}:eq`])]))
   // Ward settings: both save offers are on unless turned off in the popup's Settings
   const offerLogins = stored.offerLogins !== false, offerForms = stored.offerForms !== false;
-  return (state = { accounts, used, neverSave, offerLogins, offerForms, items, open, equiv, rank });
+  const passkeyMenu = stored.passkeyMenu !== false; // passkey autofill in the menu under sign-in fields
+  return (state = { accounts, used, neverSave, offerLogins, offerForms, passkeyMenu, items, open, equiv, rank });
 }
 const forSite = (v, url) => bw.forSite(v.items, url, (i) => v.equiv.get(i.a), v.rank, v.used);
 const markUsed = (i, version = null) => {
@@ -486,9 +487,11 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
   const job = m?.bwliteReq
     ? requestId(m.bwliteReq) && (m.kind === 'create' || m.kind === 'get') && validPasskeyOptions(m.kind, m.options)
       && senderOrigin
-      ? passkey(m, sender).catch(() => ({ bwliteRes: m.bwliteReq, fallback: true }))
+      ? (m.conditional === true && m.kind === 'get' ? hold(m, sender) : passkey(m, sender)).catch(() => ({ bwliteRes: m.bwliteReq, fallback: true }))
       : Promise.resolve({ bwliteRes: m.bwliteReq, fallback: true })
-    : m?.bwliteMenu === true && sender.tab && http(sender.url) ? menu(sender)
+    : m?.bwliteMenu === true && sender.tab && http(sender.url) ? menu(sender, m.pk === true && senderOrigin)
+    : typeof m?.wardPasskey === 'string' && m.wardPasskey.length < 300 && senderOrigin ? pickHeld(m.wardPasskey, sender)
+    : requestId(m?.wardCondEnd) && senderOrigin ? heldFor(sender, m.wardCondEnd).then((r) => r && session.remove(`cpk:${sender.tab.id}`)).then(() => null)
     : typeof m?.bwliteFillKey === 'string' && m.bwliteFillKey.length < 200 && sender.tab && http(sender.url) ? fillFromMenu(m.bwliteFillKey, sender)
     : m?.bwliteSubmit && sender.tab ? submitted(sender.tab.id, sender.url, m.bwliteSubmit).then(() => null)
     : m?.wardClipboardClear === true && sender.id === chrome.runtime.id && !sender.tab ? scheduleClipboardClear().then(() => null)
@@ -506,13 +509,23 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
 });
 
 // The menu sees usernames and names only; the password goes out on a click, to the frame whose URL matches.
-async function menu(sender) {
+// pk: Ward holds the page's passkey autofill request: its passkeys come first (their logins aren't listed again) and
+// a last `device` row hands the request to the browser.
+async function menu(sender, pk) {
   if (!http(sender.url)) return [];
   const v = await vault();
-  const multi = v.accounts.length > 1;
-  return forSite(v, sender.url).filter((i) => !i.reprompt).slice(0, 8).map((i) => ({
-    k: `${i.a}:${i.id}`, username: i.username, name: i.name, vault: multi ? v.accounts.find((a) => a.id === i.a)?.label : undefined,
-  }));
+  const label = (a) => (v.accounts.length > 1 ? v.accounts.find((x) => x.id === a)?.label : undefined);
+  const held = pk && await heldFor(sender);
+  const rows = (held && v.passkeyMenu ? heldKeys(v, held) : []).slice(0, 4).map(({ i, p, n }) =>
+    ({ k: `${i.a}:${i.id}:${n}`, pk: true, username: p.userName || i.username, name: i.name, vault: label(i.a) }));
+  const listed = new Set(rows.map((r) => r.k.slice(0, r.k.lastIndexOf(':'))));
+  const out = rows.concat(forSite(v, sender.url).filter((i) => !i.reprompt && !listed.has(`${i.a}:${i.id}`)).slice(0, 8 - rows.length).map((i) => ({
+    k: `${i.a}:${i.id}`, username: i.username, name: i.name, vault: label(i.a),
+  })));
+  // nothing to show (locked meanwhile, setting off): the browser takes the request; its list shows on the next click
+  if (held && (!v.passkeyMenu || !out.length)) release(held, sender.tab.id).catch(() => {});
+  else if (held) out.push({ k: 'device', device: true });
+  return out;
 }
 
 async function fillFromMenu(k, sender) {
@@ -532,23 +545,29 @@ async function fillFromMenu(k, sender) {
 // --- passkeys: check the request and open a Ward window for it; that window (popup.js passkeyView) answers the
 // page directly. The origin comes from Chrome (sender.origin), never from the page.
 
-async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentId }) {
-  const fallback = { bwliteRes: bwliteReq, fallback: true };
+// The request's relying party if this page may use it, else null. useful(rpId) is asked before any network fetch.
+async function relyingParty(kind, o, origin, useful) {
   let page;
-  try { page = new URL(origin); } catch { return fallback; }
+  try { page = new URL(origin); } catch { return null; }
   const host = page.hostname.toLowerCase();
   const requested = (kind === 'create' ? o.rp?.id : o.rpId) || host;
-  if (typeof requested !== 'string' || !requested || /[\s\/?#@:]/.test(requested)) return fallback;
+  if (typeof requested !== 'string' || !requested || /[\s\/?#@:]/.test(requested)) return null;
   let rpId;
-  try { rpId = new URL(`https://${requested}`).hostname.toLowerCase().replace(/\.$/, ''); } catch { return fallback; }
+  try { rpId = new URL(`https://${requested}`).hostname.toLowerCase().replace(/\.$/, ''); } catch { return null; }
   // rpId must be the page's host, a registrable-domain suffix or a related origin, never a public suffix.
   if (page.origin !== origin || !https(origin)
-    || (bw.isPublicSuffix(rpId) && !(host === 'localhost' && rpId === 'localhost'))) return fallback;
+    || (bw.isPublicSuffix(rpId) && !(host === 'localhost' && rpId === 'localhost'))) return null;
   // Ward: check the vault first, so a page can't make Ward fetch arbitrary hosts' .well-known/webauthn for nothing
+  if (!(await useful(rpId))) return null;
+  if (!(host === rpId || host.endsWith(`.${rpId}`)) && !(await relatedOrigins(rpId, origin))) return null;
+  return rpId;
+}
+
+async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentId }) {
+  const fallback = { bwliteRes: bwliteReq, fallback: true };
   const version = stateVersion;
-  if (!(await mayAnswer(kind, rpId))) return fallback;
-  if (!(host === rpId || host.endsWith(`.${rpId}`)) && !(await relatedOrigins(rpId, origin))) return fallback;
-  if (version !== stateVersion) return fallback;
+  const rpId = await relyingParty(kind, o, origin, (rp) => mayAnswer(kind, rp));
+  if (!rpId || version !== stateVersion) return fallback;
   const key = crypto.randomUUID();
   // One window per tab; the lock makes check-and-set atomic against a page firing many requests at once. The window
   // closes itself at `expires` (page.js uses the same clamp plus slack), so a stale record frees the tab.
@@ -576,6 +595,63 @@ async function relatedOrigins(rpId, origin) {
     return r.ok && bw.relatedOrigin(await r.json(), origin);
   } catch { return false; }
 }
+
+// --- passkey autofill (mediation: conditional, page.js). Ward holds the request (one per tab) when its menu would
+// show on the page (an open vault has a passkey or a login for it), so the browser's list never covers Ward's menu.
+// The menu lists the passkeys and a genuine click signs here, like Fill for a password; "Use device or security key"
+// there hands the request to the browser. User verification is as in the passkey window: an unlocked vault plus that
+// click. Otherwise the browser keeps the request.
+async function hold({ bwliteReq: id, options: o }, { origin, url, tab, documentId, frameId }) {
+  const fallback = { bwliteRes: id, fallback: true };
+  if (frameId !== 0) return fallback;
+  const version = stateVersion;
+  const rpId = await relyingParty('get', o, origin, async (rp) => {
+    const v = await vault();
+    return v.passkeyMenu && (heldKeys(v, { rpId: rp, options: o }).length > 0 || forSite(v, url).some((i) => !i.reprompt));
+  });
+  if (!rpId || version !== stateVersion) return fallback;
+  await session.set({ [`cpk:${tab.id}`]: { id, options: o, origin, rpId, documentId } });
+  return { bwliteRes: id, hold: true };
+}
+// The held request if it is this sender's (top frame, same document and origin) and, given id, has that id.
+async function heldFor(sender, id) {
+  const key = `cpk:${sender.tab?.id}`;
+  const r = (await session.get(key))[key];
+  return r && sender.frameId === 0 && r.documentId === sender.documentId && r.origin === sender.origin
+    && (id === undefined || r.id === id) ? r : null;
+}
+// Open vaults' passkeys for the request, most recently used first; n: index in its login.
+function heldKeys(v, { rpId, options: o }) {
+  const allow = new Set((o.allowCredentials || []).filter((c) => (c.type ?? 'public-key') === 'public-key').map((c) => c.id));
+  const id = (p) => { try { return bw.b64u(bw.credIdBytes(p.credentialId)); } catch { return null; } };
+  return v.items.flatMap((i) => (i.reprompt ? [] : (i.passkeys || []).map((p, n) => ({ i, p, n }))))
+    .filter(({ p }) => typeof p?.rpId === 'string' && p.rpId.toLowerCase() === rpId && typeof p.keyValue === 'string'
+      && id(p) && (!o.allowCredentials?.length || allow.has(id(p))))
+    .sort((x, y) => (v.used[`${y.i.a}:${y.i.id}`] || 0) - (v.used[`${x.i.a}:${x.i.id}`] || 0));
+}
+// Answers the held request: a credential, `device` (the browser's prompt) or back to the browser.
+async function release(r, tabId, res = { fallback: true }) {
+  await session.remove(`cpk:${tabId}`);
+  await chrome.tabs.sendMessage(tabId, { bwliteRes: r.id, ...res }, r.documentId ? { documentId: r.documentId } : { frameId: 0 }).catch(() => {});
+}
+async function pickHeld(k, sender) {
+  const r = await heldFor(sender);
+  if (!r) return null;
+  if (k === 'device') return release(r, sender.tab.id, { fallback: true, device: true }).then(() => true);
+  const version = stateVersion;
+  const v = await vault();
+  const hit = v.passkeyMenu && heldKeys(v, r).find(({ i, n }) => `${i.a}:${i.id}:${n}` === k);
+  if (!hit) return null;
+  const keyName = `${hit.i.a}:key`, before = (await session.get(keyName))[keyName];
+  if (!before) return null;
+  const result = await bw.passkeyGet(hit.p, r.options, r.origin);
+  // locked, synced or answered meanwhile: nothing
+  if ((await session.get(keyName))[keyName] !== before || version !== stateVersion || (await heldFor(sender, r.id)) === null) return null;
+  if (!await markUsed(hit.i, version)) return null;
+  await release(r, sender.tab.id, { result });
+  return true;
+}
+chrome.tabs.onRemoved.addListener((tabId) => session.remove(`cpk:${tabId}`).catch(() => {}));
 
 // No vaults: leave passkeys to the browser. Sign-in: skip the window when every vault is open and none has a
 // passkey for the site (e.g. it wants a security key).

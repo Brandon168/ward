@@ -43,6 +43,29 @@ before fixing. Status reflects the current `main`.
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
 
+## Passkey autofill (0.7.0)
+
+- `page.js` no longer passes `mediation: 'conditional'` sign-in requests straight to the browser. They take the same
+  path as other passkey requests (`bridge.js` allowlist, `validPasskeyOptions`, rpId from `sender.origin`, vault check
+  before any `.well-known/webauthn` fetch), plus: top frame only, and held only when Settings → Passkeys is on and
+  Ward's menu would show on the page (an open vault has a matching passkey or a login for the site). Otherwise,
+  after 5 s without an answer, or when the extension is gone, the browser gets the request unchanged.
+- The held request (`cpk:<tab>` in session storage) is bound to the tab, the document (`documentId`) and the origin.
+  Only the menu of that document's top frame gets passkey rows or can pick one; a pick re-checks that the vault key
+  and state did not change while signing, answers once and goes to that document only. Child frames and other
+  documents get nothing.
+- The click goes through the same `genuine()` check as Fill (trusted event, IntersectionObserver v2 visibility, 400 ms,
+  untouched menu). The assertion is bound to the page's origin and rpId, so it is worth no more to the page than the
+  password Fill would give it. As in the passkey window (L4), the UV flag means "unlocked vault plus this click";
+  re-prompt logins are not offered in the menu.
+- The page's AbortSignal ends the request in Ward too (`wardCondEnd`, accepted only from that document). A held
+  request Ward has nothing left to show for (vault locked, setting off) is handed back to the browser the next time
+  the menu opens. "Use device or security key" hands it to the browser as a modal request; if that is cancelled,
+  Ward holds it again.
+- Known, accepted: the page can tell whether Ward held its request (Ward's answer passes through the page's own
+  window messages), so a site can learn that this browser's Ward has a passkey or login for that same site. The modal path
+  already shows the same thing (Ward's window vs the browser's prompt), and every page can see Ward is installed (Info).
+
 ## Speed work that touches matching (0.6.1)
 
 - Base domains for saved URIs are computed by `decryptVault` and stored with the cached list (`d`), tagged with the

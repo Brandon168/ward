@@ -1,6 +1,6 @@
 // Shared by scripts/bench.mjs and scripts/e2e-twostep.mjs (not shipped, not run in CI):
 // - startFront(): a local TLS front. https://vault.test proxies to a throwaway Vaultwarden (HTTP and WebSocket),
-//   https://login.test serves a plain sign-in page. Chromium reaches them through the returned flags; every other
+//   https://login.test serves a plain sign-in page (and /passkey, one with passkey autofill). Chromium reaches them through the returned flags; every other
 //   host is blocked. Vaultwarden needs DOMAIN=https://vault.test for security keys (WebAuthn checks the origin).
 // - register(): a new Vaultwarden account with Ward's own crypto (registration is not part of the extension).
 import { createServer as https } from 'node:https';
@@ -22,6 +22,34 @@ button{margin-top:18px;width:100%;padding:10px;border:0;border-radius:6px;backgr
 <input id="u" name="username" type="email" autocomplete="username"><label for="p">Password</label>
 <input id="p" name="password" type="password" autocomplete="current-password"><button>Sign in</button></form></body></html>`;
 
+// https://login.test/passkey: a sign-in page with passkey autofill (mediation: conditional) on its username field, a
+// "Passwordless sign in" button that aborts it for a modal request, as real sites do. window.log records the outcomes;
+// window.restart() asks again.
+const PASSKEY = `<!doctype html><html><head><meta charset="utf-8"><title>Passkey sign in</title></head>
+<body style="font:15px system-ui;padding:60px"><form onsubmit="return false" style="width:300px"><label for="u">Username</label>
+<input id="u" name="username" autocomplete="username webauthn" style="display:block;width:100%;padding:8px">
+<label for="p">Password</label><input id="p" type="password" autocomplete="current-password" style="display:block;width:100%;padding:8px">
+<button>Sign in</button></form><button id="modal" type="button" style="margin-top:12px">Passwordless sign in</button>
+<script>
+  window.log = [];
+  const challenge = () => crypto.getRandomValues(new Uint8Array(32));
+  const b64 = (x) => btoa(String.fromCharCode(...new Uint8Array(x)));
+  const seen = (how) => (c) => log.push({ how, id: c.id, user: c.response.userHandle && new TextDecoder().decode(c.response.userHandle),
+    client: JSON.parse(new TextDecoder().decode(c.response.clientDataJSON)),
+    signed: { auth: b64(c.response.authenticatorData), data: b64(c.response.clientDataJSON), sig: b64(c.response.signature) } });
+  let ac;
+  window.restart = () => {
+    ac = new AbortController();
+    navigator.credentials.get({ mediation: 'conditional', signal: ac.signal, publicKey: { challenge: challenge(), rpId: 'login.test' } })
+      .then(seen('autofill'), (e) => log.push({ how: 'autofill', error: e.name }));
+  };
+  restart();
+  document.getElementById('modal').onclick = () => {
+    ac.abort();
+    navigator.credentials.get({ publicKey: { challenge: challenge(), rpId: 'login.test' } }).then(seen('modal'), (e) => log.push({ how: 'modal', error: e.name }));
+  };
+</script></body></html>`;
+
 export async function startFront({ upstream = 'http://localhost:8099', port = 8443 } = {}) {
   const work = mkdtempSync(join(homedir(), '.cache', 'ward-front-'));
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=vault.test',
@@ -30,7 +58,7 @@ export async function startFront({ upstream = 'http://localhost:8099', port = 84
   const server = https({ key: readFileSync(join(work, 'key.pem')), cert: readFileSync(join(work, 'cert.pem')) }, (req, res) => {
     if ((req.headers.host || '').startsWith('login.test')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(SIGNIN);
+      return res.end(req.url === '/passkey' ? PASSKEY : SIGNIN);
     }
     const p = request({ host: up.hostname, port: up.port, path: req.url, method: req.method, headers: { ...req.headers, host: up.host } }, (r) => {
       res.writeHead(r.statusCode, r.headers);
