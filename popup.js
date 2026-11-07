@@ -191,6 +191,7 @@ async function start() {
     }
   });
   if (mode === 'touch') return touchView(modeKey);
+  if (!mode && s.twostep) return twoStepView(s.twostep); // a login waiting for its second step
   // The save offer is a tiny extension-owned window. It must never fall
   // through to the full login/unlock/vault views when its account closed.
   if (mode === 'save' && (!accounts.length || !unlocked().length)) return closeSave();
@@ -347,17 +348,14 @@ async function syncAll() {
   if (problems) throw new Error(problems);
 }
 
-function loginView() {
+function loginView(message = '') {
   if (mode === 'save') return closeSave();
   const server = h('input', { value: accounts.at(-1)?.server || 'https://vault.bitwarden.com', required: true });
   const email = h('input', { type: 'email', required: true });
   const pw = h('input', { type: 'password', required: true });
   const label = h('input', { placeholder: 'Defaults to the email' });
-  const code = h('input', { autocomplete: 'one-time-code' });
-  const codeField = h('label', { hidden: true }, h('span'), code);
   const btn = h('button', { className: 'primary' }, 'Log in');
-  const err = h('p', { className: 'err' });
-  let need;
+  const err = h('p', { className: 'err' }, message);
   const form = h('form', {
     onsubmit: (e) => {
       e.preventDefault();
@@ -369,32 +367,102 @@ function loginView() {
         if (su.protocol !== 'https:' && !(su.protocol === 'http:' && /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/i.test(su.hostname)))
           throw new Error('Use an https:// server address (plain http is only allowed for localhost).');
         // the same vault again (after a master password or KDF change elsewhere) is logged in again in place
-        const old = accounts.find((a) => a.server === srv && a.email.toLowerCase() === mail.toLowerCase());
+        const old = findAccount(srv, mail);
         if (!st.deviceId) await local.set({ deviceId: (st.deviceId = crypto.randomUUID()) }); // one id per install avoids new-device emails
-        try {
-          const r = await bw.login(srv, mail, pw.value, st.deviceId, need && { kind: need, value: code.value.trim() }, old?.twoFactorToken, old?.kdf);
-          const fields = { kdf: r.kdf, protectedKey: r.protectedKey, tokens: r.tokens, ...(r.twoFactorToken && { twoFactorToken: r.twoFactorToken }) };
-          const a = old || { id: newId(), server: srv, email: mail, label: label.value.trim() || mail, ...fields };
-          await (old ? update(old, fields) : updateAccounts((list) => [...list, a]));
-          await setKey(a, r.userKey);
-          await local.set({ passwordAt: (st.passwordAt = Date.now()) });
-          await syncAccount(a);
-          merge();
-          vaultView();
-        } catch (e) {
-          if (!e.need) throw e;
-          need = e.need;
-          codeField.hidden = false;
-          codeField.firstChild.textContent = e.message;
-          code.focus();
-        }
+        const keys = await bw.loginKeys(srv, mail, pw.value, old?.kdf);
+        await attempt({ server: srv, email: mail, label: label.value.trim() || mail, keys }, null, old?.twoFactorToken);
       });
     },
   },
-    field('Server', server), field('Email', email), field('Master password', pw), field('Label', label), codeField,
+    field('Server', server), field('Email', email), field('Master password', pw), field('Label', label),
     h('div', { className: 'inline' }, btn, accounts.length && h('button', { type: 'button', onclick: accountsView }, 'Cancel')), err);
   render(title(accounts.length ? 'Add vault' : 'Ward'), form);
   email.focus();
+}
+
+let waitingKey = false; // the security key window is open for this popup's login
+const findAccount = (server, email) => accounts.find((a) => a.server === server && a.email.toLowerCase() === email.toLowerCase());
+
+// One login attempt with keys from bw.loginKeys. A two-step or new-device request is kept in session storage
+// (`twostep`: memory only, trusted contexts only, cleared by locking) and shown, so the popup can close while you
+// read an email or touch a key. Success adds the vault (or refreshes it in place) and opens it.
+async function attempt(p, code, remember) {
+  const old = findAccount(p.server, p.email);
+  let r;
+  try {
+    r = await bw.loginWith(p.server, p.email, p.keys, st.deviceId, code, remember);
+  } catch (e) {
+    if (!e.need) throw e;
+    const providers = e.providers || p.providers || [];
+    const pick = [p.provider, old?.twoFactorProvider].find((id) => providers.some((x) => x.id === id));
+    const next = { server: p.server, email: p.email, label: p.label, kdf: p.keys.kdf, hash: p.keys.hash, key: bw.b64(p.keys.key),
+      need: e.need, providers, provider: e.need === '2fa' ? pick ?? providers[0].id : null, expires: Date.now() + 10 * 60e3 };
+    await session.set({ twostep: next });
+    return twoStepView(next);
+  }
+  await session.remove('twostep');
+  const fields = { kdf: r.kdf, protectedKey: r.protectedKey, tokens: r.tokens, ...(r.twoFactorToken && { twoFactorToken: r.twoFactorToken }),
+    ...(code?.kind === '2fa' && { twoFactorProvider: code.provider }) };
+  const a = old || { id: newId(), server: p.server, email: p.email, label: p.label, ...fields };
+  await (old ? update(old, fields) : updateAccounts((list) => [...list, a]));
+  await setKey(a, r.userKey);
+  await local.set({ passwordAt: (st.passwordAt = Date.now()) });
+  await syncAccount(a);
+  merge();
+  vaultView();
+}
+
+const validTwoStep = (p) => p && typeof p.server === 'string' && typeof p.email === 'string' && typeof p.hash === 'string'
+  && keyBytes(p.key) && Array.isArray(p.providers) && (p.need === 'device' || p.providers.some((x) => x?.id === p.provider))
+  && p.expires > Date.now();
+
+// Ward: the second step of a login (security key, YubiKey, authenticator app, email) or a new-device code.
+function twoStepView(p) {
+  if (!validTwoStep(p)) return session.remove('twostep').then(() => loginView('That login timed out. Log in again.'));
+  const keys = { kdf: p.kdf, hash: p.hash, key: keyBytes(p.key) };
+  const where = new URL(p.server).host;
+  const data = p.providers.find((x) => x.id === p.provider)?.data;
+  const save = (patch) => session.set({ twostep: (p = { ...p, ...patch }) });
+  const code = h('input', { autocomplete: 'one-time-code', inputmode: p.provider === 3 ? 'text' : 'numeric', required: true });
+  const btn = h('button', { className: 'primary' }, 'Continue');
+  const err = h('p', { className: 'err' }, p.keyError || '');
+  const cancel = h('button', { type: 'button', onclick: () => session.remove('twostep').then(() => loginView()) }, 'Cancel');
+  const finish = (value) => run(btn, err, () => attempt({ ...p, keys },
+    p.need === 'device' ? { kind: 'device', value } : { kind: '2fa', provider: p.provider, value }));
+  const others = p.need === '2fa' ? p.providers.filter((x) => x.id !== p.provider) : [];
+  const switcher = others.length > 0 && h('p', { className: 'muted switch' }, 'Or use',
+    ...others.map((x) => h('button', { type: 'button', className: 'link', onclick: () => save({ provider: x.id, keyError: null, emailSent: false }).then(() => twoStepView(p)) },
+      bw.TWO_STEP[x.id])));
+  const head = [title('Two-step login'), h('p', { className: 'muted' }, `${p.email} · ${where}`)];
+  const sendCode = () => bw.sendEmailCode(p.server, p.email, keys, st.deviceId)
+    .catch((e) => { throw e instanceof TypeError ? new Error('Could not reach the server to send the code.') : e; });
+  if (p.provider === 7 && p.need === '2fa') {
+    const go = h('button', { className: 'primary', onclick: () => {
+      go.disabled = true;
+      err.textContent = '';
+      waitingKey = true;
+      save({ keyError: null }).then(() => chrome.runtime.sendMessage({ wardTwoStepKey: true })).catch(() => {});
+    } }, 'Use security key');
+    render(...head, h('p', {}, `A small window from ${where} opens for your security key or passkey; Ward finishes the login after it.`),
+      h('div', { className: 'inline' }, go, cancel), err, switcher);
+    if (p.assertion) { // back from the key window: finish with its answer (once)
+      const token = p.assertion;
+      go.disabled = true;
+      save({ assertion: null }).then(() => run(go, err, () => attempt({ ...p, keys }, { kind: '2fa', provider: 7, value: token })));
+    }
+    return;
+  }
+  const say = p.need === 'device' ? 'Ward is new to this vault. Enter the code the server just emailed you to approve it.'
+    : p.provider === 1 ? `Enter the code sent to ${data?.Email || 'your email'}.`
+      : p.provider === 3 ? 'Insert your YubiKey and touch it.' : 'Enter the 6-digit code from your authenticator app.';
+  const resend = p.provider === 1 && p.need === '2fa' && h('button', { type: 'button', className: 'link end', onclick: () =>
+    run(resend, err, () => sendCode().then(() => (err.textContent = 'Sent again.'))) }, 'Send the code again');
+  render(...head, h('form', { onsubmit: (e) => (e.preventDefault(), finish(code.value.trim())) }, h('p', {}, say), field('Code', code),
+    h('div', { className: 'inline' }, btn, cancel, resend), err), switcher);
+  code.focus();
+  if (p.provider === 1 && p.need === '2fa' && !p.emailSent) { // the server only emails the code when asked
+    save({ emailSent: true }).then(sendCode).catch((e) => (err.textContent = e.message));
+  }
 }
 
 // One password box for every locked vault: each vault it opens unlocks, the rest stay locked.
@@ -1266,6 +1334,9 @@ async function touchView(kind) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session') return;
   const has = (key) => Object.prototype.hasOwnProperty.call(changes, key);
+  // the security key window answered while this popup stayed open: finish (or show why not) right here
+  const ts = has('twostep') && changes.twostep.newValue;
+  if (waitingKey && ts && (ts.assertion || ts.keyError)) return (waitingKey = false, twoStepView(ts));
   if (mode === 'save' && has(`save:${modeKey}`) && changes[`save:${modeKey}`].newValue === undefined) return closeSave();
   if (mode === 'pk' && has(`pk:${modeKey}`) && changes[`pk:${modeKey}`].newValue === undefined) return answer(CANCEL);
   const removed = [...new Set(Object.entries(changes).filter(([k, v]) => /:key$/.test(k) && v.newValue === undefined)

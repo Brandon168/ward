@@ -69,6 +69,27 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     are kept. In Add login, Gen fills with those settings; the dice next to Password or Username opens the generator
     and Use puts the value back into the form.
 
+17. **Two-step login (0.6.0)**: on a test account, turn on email or a security key in the web vault (Settings →
+    Security → Two-step login), then add the vault in Ward. Email: "Enter the code sent to …"; close the popup, get the
+    code from your mail, reopen Ward: it is still waiting; enter it. Security key: Use security key opens a small window
+    on your server with the browser's prompt; touch the key; the window closes and Ward opens the vault. "Or use"
+    switches between the methods the account has. Cancel goes back to the login form.
+
+### Automated two-step checks
+
+- Email: run Vaultwarden with mail going to [Mailpit](https://mailpit.axllent.org/) and pass `MAILPIT`:
+
+  ```sh
+  docker network create ward-test
+  docker run -d --name ward-mail --network ward-test -p 127.0.0.1:8025:8025 axllent/mailpit:v1.33.0
+  docker run -d --name ward-vw --network ward-test -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true \
+    -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 -e DOMAIN=https://vault.test \
+    -e SMTP_HOST=ward-mail -e SMTP_PORT=1025 -e SMTP_SECURITY=off -e SMTP_FROM=vault@vault.test vaultwarden/server:1.37.5
+  MAILPIT=http://localhost:8025 node test.mjs --integration
+  ```
+- Security key: with that container (`DOMAIN=https://vault.test` matters), `node scripts/e2e-twostep.mjs` logs in through
+  Ward's real popup in headless Chromium with a virtual authenticator.
+
 ## What's not there yet
 
 No in-page menu for card fields yet (use the popup). Touch ID covers the vaults that were open when you set it up.

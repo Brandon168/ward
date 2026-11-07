@@ -19,6 +19,7 @@
 - Fix: no more console error on every click on pages without a password field (0.4.3)
 - The passkey and save windows match the popup: Ward bar, a title that names the site, account rows with avatars (0.4.4)
 - Generator: passwords with options, passphrases (EFF word list), usernames; remembered options; Use from the login form (0.5.0)
+- Two-step login: email codes, YubiKey, security keys/passkeys (window on the server), method picker, resumes after the popup closes (0.6.0)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

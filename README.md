@@ -61,6 +61,8 @@ Loading from a specific commit means nothing changes until you pull and reload o
 
 - Logins: search, fill (popup, in-page menu under the login field, Cmd+Shift+L), copy, add, edit, delete
 - TOTP codes, passkeys (stored in Bitwarden's format, so the official apps can use them), save/update prompts
+- Two-step login: authenticator app, email code (Ward asks the server to send it), YubiKey, or a security key /
+  passkey (a small window on your server shows the browser's prompt). The popup can close while you fetch the code.
 - Generator (dice button): passwords (length, character sets, no look-alikes), passphrases from the EFF word list,
   and usernames (random word, email with a +tag, catch-all address); the options are remembered, and the login form's
   Gen uses them
@@ -98,6 +100,7 @@ a real vault.
   browser profile can then decrypt the vault. It is off by default.
 - **Touch ID unlock is experimental.** It relies on the WebAuthn PRF extension (see Settings > Touch ID). It has
   been tested on macOS only; Windows Hello should work on recent Windows 11 and Chrome versions but is untested.
+- **Duo two-step login isn't supported.** Add another method (authenticator app, email, security key) in the web vault.
 - Smaller open items (regex match types, passkey prompts, Firefox) are listed in the review.
 
 CI enforces guard rails on every change, including upstream cherry-picks: manifest permissions are pinned,
@@ -111,7 +114,8 @@ See `scripts/guard.mjs`.
 node test.mjs                       # offline checks
 docker run -d --name ward-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true \
   -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 vaultwarden/server:1.37.5
-node test.mjs --integration         # against the disposable Vaultwarden above
+node test.mjs --integration         # against the disposable Vaultwarden above (MAILPIT=... adds email two-step, see docs/TESTING.md)
+node scripts/e2e-twostep.mjs        # security key two-step login in Chromium (Vaultwarden with DOMAIN=https://vault.test)
 node scripts/guard.mjs              # security guard rails
 ./pack.sh                           # dist/ward-<version>.zip
 node scripts/screenshots.mjs        # docs/screenshots/ from the sample-data previews (needs Chromium)

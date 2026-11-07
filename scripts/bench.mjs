@@ -9,16 +9,13 @@
 // Nothing here ships or runs in CI. Each browser gets a fresh profile with one extension (or none, the baseline).
 // All other hosts are blocked, so only the vault (https://vault.test, a local TLS proxy in front of Vaultwarden)
 // and the sample sign-in page (https://login.test) are reachable.
-import { createServer as https } from 'node:https';
-import { request } from 'node:http';
-import { connect } from 'node:net';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as bw from '../bw.js';
 import { launch, sleep } from './cdp.mjs';
+import { startFront, register, VAULT, PAGE } from './testfront.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name, dflt) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : dflt; };
@@ -28,62 +25,18 @@ const UPSTREAM = arg('server', 'http://localhost:8099'), PORT = +arg('port', 844
 const ONLY = arg('only'); // none | ward | bitwarden, for debugging one browser
 const DEBUG = process.argv.includes('--debug');
 if (!BITWARDEN && ONLY !== 'ward' && ONLY !== 'none') throw new Error('--bitwarden <dir> is required (an unpacked copy of the Chrome Web Store build)');
-const VAULT = 'https://vault.test', PAGE = 'https://login.test/';
 const PASSWORD = 'correct horse battery staple 42';
 const log = (...a) => console.error(...a);
 const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 
-// --- TLS front: vault.test proxies to Vaultwarden (HTTP and WebSocket), login.test serves a sign-in page ----------
-const work = mkdtempSync(join(homedir(), '.cache', 'ward-bench-'));
-execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=vault.test',
-  '-addext', 'subjectAltName=DNS:vault.test,DNS:login.test', '-keyout', join(work, 'key.pem'), '-out', join(work, 'cert.pem')], { stdio: 'ignore' });
-const SIGNIN = `<!doctype html><html><head><meta charset="utf-8"><title>Sign in</title>
-<style>body{font:15px system-ui;display:grid;place-items:center;height:90vh;margin:0;background:#f4f5f7}form{background:#fff;padding:28px;border-radius:12px;width:300px;box-shadow:0 2px 12px #0001}
-label{display:block;margin:12px 0 4px;font-size:13px;color:#555}input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #ccd;border-radius:6px;font:inherit}
-button{margin-top:18px;width:100%;padding:10px;border:0;border-radius:6px;background:#2563eb;color:#fff;font:inherit}</style></head>
-<body><form action="/done" method="post"><h2 style="margin:0 0 8px">Sign in</h2><label for="u">Email</label>
-<input id="u" name="username" type="email" autocomplete="username"><label for="p">Password</label>
-<input id="p" name="password" type="password" autocomplete="current-password"><button>Sign in</button></form></body></html>`;
-const up = new URL(UPSTREAM);
-const server = https({ key: readFileSync(join(work, 'key.pem')), cert: readFileSync(join(work, 'cert.pem')) }, (req, res) => {
-  if ((req.headers.host || '').startsWith('login.test')) {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(SIGNIN);
-  }
-  const p = request({ host: up.hostname, port: up.port, path: req.url, method: req.method, headers: { ...req.headers, host: up.host } }, (r) => {
-    res.writeHead(r.statusCode, r.headers);
-    r.pipe(res);
-  });
-  p.on('error', () => res.destroy());
-  req.pipe(p);
-});
-server.on('upgrade', (req, sock, head) => { // WebSocket (Vaultwarden's notification hub): pass the bytes through
-  const u = connect(+up.port, up.hostname, () => {
-    u.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries({ ...req.headers, host: up.host }).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
-    u.write(head);
-    u.pipe(sock).pipe(u);
-  });
-  u.on('error', () => sock.destroy()); sock.on('error', () => u.destroy());
-});
-await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
-const ARGS = ['--ignore-certificate-errors',
-  `--host-resolver-rules=MAP vault.test:443 127.0.0.1:${PORT}, MAP login.test:443 127.0.0.1:${PORT}, MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1`];
+// --- TLS front (scripts/testfront.mjs): https://vault.test in front of Vaultwarden, https://login.test a sign-in page
+const front = await startFront({ upstream: UPSTREAM, port: PORT });
+const ARGS = front.args;
 
 // --- The vault: one PBKDF2 account with ITEMS logins, the same for every extension ---------------------------------
 async function makeVault() {
-  const email = `bench-${Date.now()}@example.com`, kdf = { kdf: 0, kdfIterations: 600000 };
-  const mk = await bw.makeMasterKey(PASSWORD, email, kdf);
-  const userKey = crypto.getRandomValues(new Uint8Array(64));
-  const rsa = await crypto.subtle.generateKey({ name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-1' }, true, ['encrypt', 'decrypt']);
-  const json = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
-  const token = await (await fetch(`${UPSTREAM}/identity/accounts/register/send-verification-email`, { ...json, body: JSON.stringify({ email, name: 'bench' }) })).text();
-  const r = await fetch(`${UPSTREAM}/identity/accounts/register/finish`, { ...json, body: JSON.stringify({
-    email, emailVerificationToken: token, masterPasswordHash: await bw.passwordHash(mk, PASSWORD), masterPasswordHint: null, ...kdf,
-    userSymmetricKey: await bw.encrypt(userKey, await bw.stretch(mk)),
-    userAsymmetricKeys: { publicKey: bw.b64(new Uint8Array(await crypto.subtle.exportKey('spki', rsa.publicKey))),
-      encryptedPrivateKey: await bw.encrypt(new Uint8Array(await crypto.subtle.exportKey('pkcs8', rsa.privateKey)), userKey) },
-  }) });
-  if (!r.ok) throw new Error(`register: ${r.status} ${await r.text()}`);
+  const email = `bench-${Date.now()}@example.com`;
+  await register(UPSTREAM, email, PASSWORD);
   const l = await bw.login(UPSTREAM, email, PASSWORD, crypto.randomUUID());
   const s = { server: UPSTREAM, tokens: l.tokens };
   const words = ['mail', 'bank', 'shop', 'news', 'cloud', 'photo', 'music', 'travel', 'health', 'forum', 'games', 'work'];
@@ -306,8 +259,7 @@ try {
     log(JSON.stringify(results.browsers[kind]));
   }
 } finally {
-  server.close();
-  rmSync(work, { recursive: true, force: true });
+  front.close();
 }
 writeFileSync(join(root, 'bench', 'results.json'), JSON.stringify(results, null, 2) + '\n');
 console.log(JSON.stringify(results, null, 2));

@@ -12,6 +12,7 @@ import { fillTab, formFrameAllowed } from './autofill.js';
 import * as touch from './touch.js';
 import { storeSync, hasInvocation, SIGNALR_PING, syncOpenVault } from './sync.js';
 import * as gen from './gen.js';
+import { securityKeyPrompt } from './twostep.js';
 
 globalThis.hashwasm = createRequire(import.meta.url)('./vendor/argon2.umd.min.js');
 const SERVER = process.env.SERVER || 'http://localhost:8099';
@@ -942,7 +943,8 @@ assert.equal(framedSave.parentMessages.length, 0);
 // Logging in to a vault that is already added (master password changed elsewhere) updates it in place.
 const loginCalls = [];
 const reloginPopup = makePopup('', { local: { accounts: [{ ...popupAccount('acct', 'Vault'), protectedKey: 'old-pk' }], deviceId: 'dev' } }, { bw: {
-  login: async (...args) => (loginCalls.push(args), { kdf: { kdf: 0, kdfIterations: 1 }, protectedKey: 'new-pk', userKey: new Uint8Array(64),
+  loginKeys: async () => ({ kdf: { kdf: 0, kdfIterations: 1 }, hash: 'hash', key: new Uint8Array(64) }),
+  loginWith: async (...args) => (loginCalls.push(args), { kdf: { kdf: 0, kdfIterations: 1 }, protectedKey: 'new-pk', userKey: new Uint8Array(64),
     tokens: { access: 't', refresh: 'r', expires: Date.now() + 3600e3 }, twoFactorToken: loginCalls.length === 1 ? 'remember-me' : undefined }),
   api: async () => ({ ciphers: [], profile: {}, domains: {} }), decryptVault: async () => [] } });
 const relogin = async () => {
@@ -961,6 +963,69 @@ assert.equal(added.length, 0, 'logging in to an added vault does not add it twic
 assert.deepEqual([patched.id, patched.label, patched.protectedKey, patched.twoFactorToken], ['acct', 'Vault', 'new-pk', 'remember-me']);
 assert.equal(loginCalls[1][5], 'remember-me', 'the next login sends the remembered 2FA token');
 assert.equal(reloginPopup.session.data.get('acct:key'), popupKey, 'the vault opens with the new key');
+
+{ // Two-step login: the half-done login waits in session storage, a reopened popup resumes it, the code goes with
+  // the chosen method, email asks the server to send the code, and success clears the pending login.
+  const calls = [], sent = [];
+  const twoStepBw = {
+    loginKeys: async () => ({ kdf: { kdf: 0, kdfIterations: 1 }, hash: 'hash', key: new Uint8Array(64).fill(7) }),
+    loginWith: async (...args) => {
+      calls.push(args);
+      if (!args[4]) throw Object.assign(new Error('Two-step login'), { need: '2fa', providers: [{ id: 0, data: null }, { id: 1, data: { Email: 'a***@example.com' } }] });
+      if (args[4].value !== '123456') throw new Error('Invalid TOTP code');
+      return { kdf: { kdf: 0, kdfIterations: 1 }, protectedKey: 'pk2', userKey: new Uint8Array(64), tokens: { access: 't', refresh: 'r', expires: Date.now() + 3600e3 } };
+    },
+    sendEmailCode: async (...args) => { sent.push(args); },
+    api: async () => ({ ciphers: [], profile: {}, domains: {} }), decryptVault: async () => [],
+  };
+  const tp = makePopup('', { local: { deviceId: 'dev' } }, { bw: twoStepBw });
+  await tp.api.start();
+  const lf = tp.app.children[1];
+  lf.children[0].children[0].value = 'https://vault.example.com';
+  lf.children[1].children[0].value = 'a@example.com';
+  lf.children[2].children[0].value = 'pw';
+  lf.listeners.submit({ preventDefault() {} });
+  for (let i = 0; i < 50 && !tp.session.data.get('twostep'); i++) await new Promise((r) => setTimeout(r, 5));
+  const pending = tp.session.data.get('twostep');
+  assert.equal(pending.provider, 0, 'the authenticator app comes before email');
+  assert.equal(pending.hash, 'hash');
+  assert.equal(pending.key, bw.b64(new Uint8Array(64).fill(7)), 'the derived key waits in session storage, not the password');
+  assert.ok(!JSON.stringify(pending).includes('"pw"'), 'the master password itself is not kept');
+  assert.match(textOf(tp.app), /Two-step login/);
+  // the popup closes and reopens: it resumes on the second step
+  const tp2 = makePopup('', { local: { deviceId: 'dev' }, session: { twostep: pending } }, { bw: twoStepBw });
+  await tp2.api.start();
+  assert.match(textOf(tp2.app), /authenticator app/);
+  const cf = tp2.app.children[2];
+  cf.children[1].children[0].value = '000000';
+  cf.listeners.submit({ preventDefault() {} });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(textOf(tp2.app), /Invalid TOTP code/, 'a wrong code stays on the step with the error');
+  assert.ok(tp2.session.data.get('twostep'), 'and keeps the pending login');
+  cf.children[1].children[0].value = '123456';
+  cf.listeners.submit({ preventDefault() {} });
+  for (let i = 0; i < 50 && !findById(tp2.app, 'search'); i++) await new Promise((r) => setTimeout(r, 5));
+  const plain = (o) => JSON.parse(JSON.stringify(o, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v))); // objects from the popup's realm
+  assert.deepEqual(plain(calls.at(-1)[4]), { kind: '2fa', provider: 0, value: '123456' });
+  assert.deepEqual(plain(calls.at(-1)[2]), plain({ kdf: { kdf: 0, kdfIterations: 1 }, hash: 'hash', key: new Uint8Array(64).fill(7) }), 'the stored keys are used');
+  assert.equal(tp2.session.data.get('twostep'), undefined, 'success clears the pending login');
+  const added = (await tp2.local.get('accounts')).accounts;
+  assert.deepEqual([added.length, added[0].email, added[0].twoFactorProvider], [1, 'a@example.com', 0], 'the vault is added and remembers the method');
+  // email: switching to it sends the code once
+  const tp3 = makePopup('', { local: { deviceId: 'dev' }, session: { twostep: { ...pending, provider: 1 } } }, { bw: twoStepBw });
+  await tp3.api.start();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(textOf(tp3.app), /a\*\*\*@example\.com/);
+  assert.equal(sent.length, 1, 'the server is asked to email the code');
+  assert.equal(tp3.session.data.get('twostep').emailSent, true);
+  // expired: back to the login form
+  const tp4 = makePopup('', { local: { deviceId: 'dev' }, session: { twostep: { ...pending, expires: Date.now() - 1 } } }, { bw: twoStepBw });
+  await tp4.api.start();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(textOf(tp4.app), /timed out/);
+  assert.equal(tp4.session.data.get('twostep'), undefined);
+  console.log('two-step login (popup) ok');
+}
 
 // Re-prompt logins ask for the master password before the password is copied; a policy-hidden password has no copy button.
 const buttonsOf = (node, text) => [...(node?.tagName === 'BUTTON' && node.textContent === text ? [node] : []), ...(node?.children || []).flatMap((c) => buttonsOf(c, text))];
@@ -1133,6 +1198,53 @@ assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActi
   for (const c of counts) assert.ok(Math.abs(c - 10000) < 300, `randomInt uniform: ${counts}`);
   assert.throws(() => gen.randomInt(0));
   console.log('generator ok');
+}
+
+{ // Two-step login, bw.js side: methods in Ward's order, Duo-only refused, the email code requested
+  const realFetch = globalThis.fetch, seen = [];
+  const reply = (status, json) => ({ ok: status < 300, status, json: async () => json });
+  const keys = { kdf: { kdf: 0, kdfIterations: 600000 }, hash: 'aGFzaA==', key: new Uint8Array(64) };
+  try {
+    globalThis.fetch = async (url, init) => (seen.push([url, init]), reply(400, { error: 'invalid_grant', TwoFactorProviders2: { 0: null, 1: { Email: 'a***@x.y' }, 2: { AuthUrl: 'u' }, 7: { challenge: 'Y2g' } } }));
+    const e = await bw.loginWith('https://vault.example.com', 'a@x.y', keys, 'dev', null, 'stale').catch((x) => x);
+    assert.equal(e.need, '2fa');
+    assert.deepEqual(e.providers.map((x) => x.id), [7, 0, 1], 'security key first, Duo left out');
+    assert.equal(e.providers[2].data.Email, 'a***@x.y');
+    const body = new URLSearchParams(seen[0][1].body);
+    assert.deepEqual([body.get('password'), body.get('twoFactorProvider'), body.get('twoFactorToken')], ['aGFzaA==', '5', 'stale'], 'hash from loginKeys, remember token tried first');
+    seen.length = 0;
+    await bw.loginWith('https://vault.example.com', 'a@x.y', keys, 'dev', { kind: '2fa', provider: 7, value: '{"id":"k"}' }).catch(() => {});
+    const b2 = new URLSearchParams(seen[0][1].body);
+    assert.deepEqual([b2.get('twoFactorProvider'), b2.get('twoFactorToken'), b2.get('twoFactorRemember')], ['7', '{"id":"k"}', '1']);
+    globalThis.fetch = async () => reply(400, { TwoFactorProviders2: { 2: { AuthUrl: 'u' } } });
+    await assert.rejects(bw.loginWith('https://vault.example.com', 'a@x.y', keys, 'dev'), /Duo/);
+    globalThis.fetch = async (url, init) => (seen.push([url, init]), reply(200, {}));
+    seen.length = 0;
+    await bw.sendEmailCode('https://vault.example.com', 'a@x.y', keys, 'dev');
+    assert.equal(seen[0][0], 'https://vault.example.com/api/two-factor/send-email-login');
+    assert.deepEqual(JSON.parse(seen[0][1].body), { email: 'a@x.y', masterPasswordHash: 'aGFzaA==', deviceIdentifier: 'dev' });
+  } finally { globalThis.fetch = realFetch; }
+
+  // The security key prompt, run like executeScript runs it: alone, with a fake page and authenticator.
+  const el = () => ({ style: {}, textContent: '', append() {}, replaceChildren(...k) { this.kids = k; } });
+  const bytes = (...b) => new Uint8Array(b).buffer;
+  let asked;
+  const sandbox = vm.createContext({ btoa, atob, Uint8Array, String, JSON, Object, Error,
+    document: { createElement: el, documentElement: el(), body: el(), title: '' },
+    navigator: { credentials: { get: async (o) => ((asked = o), { id: 'a-b_c', rawId: bytes(1, 2, 251), type: 'public-key',
+      getClientExtensionResults: () => ({ appid: false }),
+      response: { authenticatorData: bytes(9), clientDataJSON: bytes(123, 125), signature: bytes(48, 0), userHandle: null } }) } } });
+  const prompt = vm.runInContext(`(${securityKeyPrompt.toString()})`, sandbox); // proves it needs nothing from its module
+  const res = await prompt({ challenge: 'AQID', rpId: 'vault.example.com', allowCredentials: [{ type: 'public-key', id: '-_8' }], userVerification: 'discouraged' }, 'vault.example.com');
+  assert.deepEqual(Array.from(asked.publicKey.challenge), [1, 2, 3]);
+  assert.deepEqual(Array.from(asked.publicKey.allowCredentials[0].id), [251, 255], 'base64url ids decoded');
+  assert.equal(asked.publicKey.rpId, 'vault.example.com');
+  assert.deepEqual(JSON.parse(res.ok), { id: 'a-b_c', rawId: 'AQL7', type: 'public-key', extensions: { appid: false },
+    response: { authenticatorData: 'CQ', clientDataJson: 'e30', signature: 'MAA', userHandle: null } }, 'the shape Vaultwarden reads');
+  sandbox.navigator.credentials.get = async () => { throw Object.assign(new Error('x'), { name: 'NotAllowedError' }); };
+  assert.match((await prompt({ challenge: 'AQID' }, 'h')).error, /cancelled or timed out/);
+  assert.match((await prompt({}, 'h')).error, /no security key challenge/);
+  console.log('two-step login (bw.js, security key prompt) ok');
 }
 
 if (!process.argv.includes('--integration')) process.exit(0);
@@ -1339,3 +1451,48 @@ const email2 = `argon-${run}@example.com`;
 const reg2 = await register(email2, { kdf: 1, kdfIterations: 3, kdfMemory: 64, kdfParallelism: 4 });
 assert.deepEqual((await bw.login(SERVER, email2, PASSWORD, deviceId)).userKey, reg2.userKey);
 console.log('argon2id login ok');
+
+// Email two-step login, against a Vaultwarden that sends mail to Mailpit (MAILPIT=http://localhost:8025; see
+// docs/TESTING.md). Skipped without it.
+if (process.env.MAILPIT) {
+  const mailpit = process.env.MAILPIT.replace(/\/+$/, '');
+  const email3 = `email2fa-${run}@example.com`;
+  await register(email3, { kdf: 0, kdfIterations: 600000 });
+  const dev = crypto.randomUUID();
+  const keys = await bw.loginKeys(SERVER, email3, PASSWORD);
+  const first = await bw.loginWith(SERVER, email3, keys, dev);
+  const s3 = { server: SERVER, tokens: first.tokens };
+  // the code in the newest email to this address (Mailpit's search API)
+  const codeFor = async (to, since) => {
+    for (let i = 0; i < 50; i++) {
+      const list = await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${to}`)}`)).json();
+      const m = (list.messages || []).find((x) => Date.parse(x.Created) >= since);
+      if (m) {
+        const text = (await (await fetch(`${mailpit}/api/v1/message/${m.ID}`)).json()).Text;
+        return text.match(/\b(\d{6})\b/)[1];
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`no email to ${to}`);
+  };
+  // turn on email two-step for the account (as the web vault does)
+  const { userVerificationToken } = await bw.api(s3, '/two-factor/get-email', 'POST', { masterPasswordHash: keys.hash });
+  let since = Date.now() - 1000;
+  await bw.api(s3, '/two-factor/send-email', 'POST', { email: email3, userVerificationToken });
+  await bw.api(s3, '/two-factor/email', 'PUT', { email: email3, token: await codeFor(email3, since), userVerificationToken });
+  // now login asks for it; Ward offers email, asks the server to send the code, and logs in with it
+  const need = await bw.loginWith(SERVER, email3, keys, dev).catch((e) => e);
+  assert.equal(need.need, '2fa');
+  assert.deepEqual(need.providers.map((x) => x.id), [1]);
+  assert.match(need.providers[0].data.Email, /\*/, 'the address comes back obscured');
+  await new Promise((r) => setTimeout(r, 1100)); // Mailpit timestamps have 1 s resolution
+  since = Date.now() - 500;
+  await bw.sendEmailCode(SERVER, email3, keys, dev);
+  const code = await codeFor(email3, since);
+  await assert.rejects(bw.loginWith(SERVER, email3, keys, dev, { kind: '2fa', provider: 1, value: '000000' }), /invalid|token/i);
+  const ok = await bw.loginWith(SERVER, email3, keys, dev, { kind: '2fa', provider: 1, value: code });
+  assert.ok(ok.userKey.length === 64 && ok.twoFactorToken, 'logged in, with a remember token for next time');
+  const again = await bw.loginWith(SERVER, email3, keys, dev, null, ok.twoFactorToken);
+  assert.ok(again.tokens.access, 'the remember token skips the code next time');
+  console.log('email two-step login ok');
+}

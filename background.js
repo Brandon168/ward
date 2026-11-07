@@ -5,6 +5,7 @@ import * as bw from './bw.js';
 import { fillTab, formFrameAllowed } from './autofill.js';
 import { withStateLock, lockEverything, shouldAutoLock, autoLockMinutes } from './coord.js';
 import { syncOpenVault, liveHub, freshTokens, SYNC_EVERY_MIN } from './sync.js';
+import { securityKeyPrompt } from './twostep.js';
 
 const local = chrome.storage.local, session = chrome.storage.session, td = new TextDecoder();
 const http = (url) => /^https?:\/\//i.test(url || '');
@@ -435,6 +436,48 @@ const validPasskeyOptions = (kind, o) => {
     && (!o.allowCredentials || (Array.isArray(o.allowCredentials) && o.allowCredentials.every(validDescriptor)));
 };
 
+// Two-step login with a security key. The popup keeps the half-done login in session storage (`twostep`, memory only,
+// trusted contexts only) and asks for this. The key is registered for the vault server's address, so the prompt runs
+// in a small window on the server itself (its /alive page), in Ward's isolated world; the page gets nothing back.
+// The result goes into `twostep` and the popup reopens to finish the login.
+let twoStepBusy = false;
+async function twoStepKey() {
+  if (twoStepBusy) return;
+  twoStepBusy = true;
+  let win;
+  const put = async (patch) => {
+    const { twostep: now } = await session.get('twostep');
+    if (now) await session.set({ twostep: { ...now, ...patch } });
+  };
+  try {
+    const { twostep: p } = await session.get('twostep');
+    const options = p?.providers?.find((x) => x.id === 7)?.data;
+    if (!p || !(p.expires > Date.now()) || !options || typeof p.server !== 'string') return;
+    const server = new URL(p.server);
+    if (server.protocol !== 'https:' && !/^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(server.hostname)) return;
+    win = await chrome.windows.create({ url: `${p.server}/alive`, type: 'popup', width: 460, height: 300, focused: true });
+    const tabId = win.tabs?.[0]?.id;
+    for (let i = 0; ; i++) { // wait for the page; it must still be on the server (no redirect elsewhere)
+      const t = await chrome.tabs.get(tabId);
+      if (t.status === 'complete' && t.url) {
+        if (new URL(t.url).origin !== server.origin) throw new Error('The server page went elsewhere; try again.');
+        break;
+      }
+      if (i > 150) throw new Error('The server page did not load.');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: securityKeyPrompt, args: [options, server.host] });
+    const out = res?.result || {};
+    await put(typeof out.ok === 'string' ? { assertion: out.ok, keyError: null } : { keyError: String(out.error || 'The security key prompt failed.') });
+  } catch (e) {
+    await put({ keyError: /No tab|removed|closed/i.test(e?.message) ? 'The security key window was closed.' : e?.message || String(e) });
+  } finally {
+    twoStepBusy = false;
+    if (win) await chrome.windows.remove(win.id).catch(() => {});
+    chrome.action.openPopup().catch(() => {}); // back to the popup, which finishes the login (or shows the error)
+  }
+}
+
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   const senderOrigin = (() => {
     if (!sender?.tab || !Number.isInteger(sender.tab.id) || typeof sender.origin !== 'string' || typeof sender.url !== 'string') return false;
@@ -449,6 +492,8 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     : typeof m?.bwliteFillKey === 'string' && m.bwliteFillKey.length < 200 && sender.tab && http(sender.url) ? fillFromMenu(m.bwliteFillKey, sender)
     : m?.bwliteSubmit && sender.tab ? submitted(sender.tab.id, sender.url, m.bwliteSubmit).then(() => null)
     : m?.wardClipboardClear === true && sender.id === chrome.runtime.id && !sender.tab ? scheduleClipboardClear().then(() => null)
+    : m?.wardTwoStepKey === true && sender.id === chrome.runtime.id && String(sender.url).startsWith(chrome.runtime.getURL('')) // Ward's own pages only
+      ? twoStepKey().then(() => null)
     : m?.wardWatch === true && sender.tab ? watchFrame(sender)
     : m?.wardDraft && sender.tab ? draftFrom(sender, m.wardDraft).then(() => null)
     : typeof m?.bwliteSaveOpen === 'string' ? openSave(m.bwliteSaveOpen, sender)

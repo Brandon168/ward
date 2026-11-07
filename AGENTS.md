@@ -20,6 +20,8 @@ findings privately). Start with README.md, ROADMAP.md, docs/security-review.md a
 node test.mjs                 # offline checks
 node scripts/guard.mjs        # security guard rails (permissions, size budgets); update scripts/guard-lock.json deliberately
 node test.mjs --integration   # against a throwaway Vaultwarden on 127.0.0.1:8099 (container `ward-vw`, see README)
+MAILPIT=http://localhost:8025 node test.mjs --integration   # adds email two-step (Vaultwarden mailing to Mailpit, docs/TESTING.md)
+node scripts/e2e-twostep.mjs  # security key two-step through the real popup in Chromium; run after touching that flow
 ```
 
 CI (.github/workflows/ci.yml) runs all three plus `./pack.sh` in one job on every push, except pushes that only change

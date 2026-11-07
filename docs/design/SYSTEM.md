@@ -43,6 +43,7 @@ colour in a view. The only literal colours are the avatar palette and the vault 
 - Lists: `.list` of `.item` rows: avatar, `.info` (`b` name, `small` detail), then actions. In the vault list the
   actions float in `.acts` and show on hover or selection; in prompts (`.item.choice`) they are always visible.
 - Views: one `h1` title (`title()`), optional `h2` sections, `.muted` helper text, `.err` under the form.
+- Other ways to do the same step (two-step methods): one `p.muted.switch` line, "Or use" followed by `.link` buttons.
 - Generated values: `.genout`, a monospace panel box (`--panel`, `--line`, 10px radius) that selects as a whole. Tab
   rows that switch a view's mode reuse the vault list's chips (`nav.kinds`, `button.on`).
 - Forms: `label` wraps its input (`field()`); checkboxes are `label.check`.

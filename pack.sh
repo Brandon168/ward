@@ -12,7 +12,7 @@ manifest() { # manifest <js mutating m> <out file>
   node -e 'const fs = require("fs"), m = JSON.parse(fs.readFileSync("manifest.json", "utf8")); eval(process.argv[1]); fs.writeFileSync(process.argv[2], JSON.stringify(m, null, 2) + "\n")' "$1" "$2"
 }
 rm -rf dist && mkdir -p dist/ward
-cp -R manifest.json popup.html popup.css popup.js theme.js bw.js background.js bridge.js page.js inpage.js autofill.js coord.js touch.js sync.js gen.js formfill.js offscreen.html offscreen.js icons vendor LICENSE dist/ward/
+cp -R manifest.json popup.html popup.css popup.js theme.js bw.js background.js bridge.js page.js inpage.js autofill.js coord.js touch.js sync.js gen.js twostep.js formfill.js offscreen.html offscreen.js icons vendor LICENSE dist/ward/
 # the .sh scripts build the .js files from the source lists; only the .js files are loaded
 rm dist/ward/vendor/psl.sh dist/ward/vendor/public_suffix_list.dat dist/ward/vendor/wordlist.sh dist/ward/vendor/eff_large_wordlist.txt
 (cd dist && zip -qrX "ward-$v.zip" ward)

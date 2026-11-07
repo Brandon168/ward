@@ -30,6 +30,10 @@ const handoffs = {
   'save-update': { 'save:demo': { kind: 'update', tabId: 1, origin: 'https://amazon.com', a: 'v', id: 'am', username: 'ann@example.com', password: 'pw8', expires: later } },
   'save-card': { 'save:demo': { kind: 'form', tabId: 1, origin: 'https://shop.example', expires: later,
     card: { brand: 'Mastercard', number: '5555555555554444', expMonth: '7', expYear: '2030', code: '321', cardholderName: 'Ann Lee' } } },
+  // a login waiting for its second step (popup.js twoStepView); the key is the sample all-zero one
+  'twostep': { twostep: { server: 'https://bw.example', email: 'me@example.com', label: 'Personal', kdf: { kdf: 0, kdfIterations: 600000 },
+    hash: 'aGFzaA==', key, need: '2fa', provider: 7, expires: later,
+    providers: [{ id: 7, data: { challenge: 'Y2g' } }, { id: 0, data: null }, { id: 1, data: { Email: 'm*@example.com' } }] } },
 }[view] || {};
 window.chrome = {
   storage: { local: area({ accounts: [{ id: 'v', server: 'https://bw.example', email: 'me@example.com', label: 'Personal', lastSync: Date.now() }],

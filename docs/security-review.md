@@ -43,6 +43,29 @@ before fixing. Status reflects the current `main`.
 | L7 | Low | Logout doesn't revoke the refresh token | Open (same as common Bitwarden practice) |
 | Info | | Every https page sees a platform authenticator (extension detectable); upstream extension key | Key replaced with Ward's own |
 
+## Two-step login (0.6.0)
+
+No new permissions. Ward now finishes logins that need an email code, a YubiKey OTP or a security key, besides an
+authenticator app (Duo is refused with a pointer to the web vault).
+
+- **A login waiting for its second step** is kept in session storage (`twostep`) so the popup can close while you read
+  an email or touch a key. It holds the server password hash and the stretched master key (what opens the vault key),
+  never the password; that is no more than the vault key Ward already keeps there. Session storage is memory only and
+  trusted contexts only (content scripts can't read it); the entry expires after 10 minutes and is removed on
+  success, Cancel, and by any lock.
+- **Security keys** are registered for the vault server's own address, so the prompt can't run on an extension page.
+  The service worker opens a small window on the server (`/alive`), waits for it to load, refuses if it ended up on
+  another origin, and runs `twostep.js` there in Ward's isolated world: the page's own scripts can't see or change the
+  challenge or the answer. Only https servers (or localhost) qualify. Only Ward's own extension pages can start it.
+  The answer goes back into `twostep`, and the popup sends it as the two-step token.
+- **Email codes** are requested explicitly (`/two-factor/send-email-login` with the password hash, as the web vault
+  does); Vaultwarden doesn't send them on its own.
+- The "remember this device" token works as before for every method.
+
+Tests: `test.mjs` (bw.js parsing and requests, the popup flow, the key prompt in a sandbox), the email method against
+Vaultwarden + Mailpit in CI, and `scripts/e2e-twostep.mjs` (Ward's real popup and service worker in Chromium with a
+virtual authenticator).
+
 ## Clipboard and right-click menu (0.4.0)
 
 New permissions: `contextMenus` (the Ward menu on page fields), `offscreen` and `clipboardWrite` (the service worker

@@ -137,34 +137,58 @@ export async function prelogin(server, email) {
 
 const tokens = (j) => ({ access: j.access_token, refresh: j.refresh_token, expires: Date.now() + j.expires_in * 1000 });
 
-// code: {kind: '2fa' | 'device', value} on the second attempt, after login threw an error with .need set.
-// remember: the twoFactorToken an earlier 2FA login returned, tried before asking for a code.
+// Two-step login methods Ward can finish, by Bitwarden's provider number, in the order Ward offers them. Duo (2)
+// needs a redirect through Duo's site and is not supported; recovery codes belong in the web vault.
+export const TWO_STEP = { 7: 'Security key', 3: 'YubiKey', 0: 'Authenticator app', 1: 'Email' };
+const TWO_STEP_ORDER = [7, 3, 0, 1];
+
+// What login needs from the master password, derived once: the server hash and the key that opens the vault key.
+// Kept (memory only) while a two-step login waits, so the popup can close and reopen without asking again.
 // pinned: the KDF stored from an earlier login to this vault; a weaker one from the server is refused.
-export async function login(server, email, password, deviceId, code, remember, pinned) {
+export async function loginKeys(server, email, password, pinned) {
   const kdf = checkKdf(await prelogin(server, email));
   if (kdfWeaker(kdf, pinned)) throw new Error('The server now asks for weaker key derivation settings than this vault used before. If you lowered them on purpose, remove the vault and add it again.');
   const mk = await makeMasterKey(password, email, kdf);
+  return { kdf, hash: await passwordHash(mk, password), key: await stretch(mk) };
+}
+
+// code: {kind: '2fa', provider, value} or {kind: 'device', value} on a later attempt, after an error with .need
+// ('2fa', with .providers [{id, data}] usable by Ward, or 'device').
+// remember: the twoFactorToken an earlier 2FA login returned, tried before asking for a code.
+export async function loginWith(server, email, keys, deviceId, code, remember) {
   const body = new URLSearchParams({
-    grant_type: 'password', username: email, password: await passwordHash(mk, password), scope: 'api offline_access',
+    grant_type: 'password', username: email, password: keys.hash, scope: 'api offline_access',
     client_id: 'browser', deviceType: '2', deviceIdentifier: deviceId, deviceName: 'chrome',
   });
-  if (code?.kind === '2fa') body.append('twoFactorToken', code.value), body.append('twoFactorProvider', '0'), body.append('twoFactorRemember', '1');
+  if (code?.kind === '2fa') body.append('twoFactorToken', code.value), body.append('twoFactorProvider', String(code.provider ?? 0)), body.append('twoFactorRemember', '1');
   else if (remember) body.append('twoFactorToken', remember), body.append('twoFactorProvider', '5'); // 5 = remember; a stale one gets the 2FA prompt again
   if (code?.kind === 'device') body.append('newDeviceOtp', code.value);
   const authEmail = btoa(email).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const r = await post(`${urls(server).identity}/connect/token`, body, { 'Content-Type': 'application/x-www-form-urlencoded', 'Auth-Email': authEmail });
   const j = r.json;
   if (!r.ok) {
-    const providers = j.TwoFactorProviders2 || j.twoFactorProviders2;
-    if (providers) {
-      if (!('0' in providers)) throw new Error('Only authenticator-app 2FA is supported');
-      throw Object.assign(new Error('Authenticator code'), { need: '2fa' });
+    const offered = j.TwoFactorProviders2 || j.twoFactorProviders2;
+    if (offered && typeof offered === 'object') {
+      const providers = TWO_STEP_ORDER.filter((id) => String(id) in offered).map((id) => ({ id, data: offered[id] ?? null }));
+      if (!providers.length) throw new Error('This account only has two-step methods Ward can\'t use yet (Duo). Add an authenticator app, email or security key in the web vault.');
+      throw Object.assign(new Error('Two-step login'), { need: '2fa', providers });
     }
     if (/new device/i.test(JSON.stringify(j))) throw Object.assign(new Error('Code emailed to you'), { need: 'device' });
     throw new Error(j.ErrorModel?.Message || j.errorModel?.message || j.message || j.error_description || `Login failed (${r.status})`);
   }
   const protectedKey = j.Key || j.key;
-  return { kdf, protectedKey, userKey: await decrypt(protectedKey, await stretch(mk)), tokens: tokens(j), twoFactorToken: j.TwoFactorToken || j.twoFactorToken };
+  return { kdf: keys.kdf, protectedKey, userKey: await decrypt(protectedKey, keys.key), tokens: tokens(j), twoFactorToken: j.TwoFactorToken || j.twoFactorToken };
+}
+
+export async function login(server, email, password, deviceId, code, remember, pinned) {
+  return loginWith(server, email, await loginKeys(server, email, password, pinned), deviceId, code, remember);
+}
+
+// Asks the server to email the two-step code (the email method). keys: from loginKeys.
+export async function sendEmailCode(server, email, keys, deviceId) {
+  const r = await post(`${urls(server).api}/two-factor/send-email-login`, JSON.stringify({ email, masterPasswordHash: keys.hash, deviceIdentifier: deviceId }),
+    { 'Content-Type': 'application/json' });
+  if (!r.ok) throw new Error(r.json?.ErrorModel?.Message || r.json?.message || `Could not send the code (${r.status})`);
 }
 
 export async function unlock(password, email, kdf, protectedKey) {
