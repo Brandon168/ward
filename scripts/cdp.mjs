@@ -8,6 +8,13 @@ import { join } from 'node:path';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export { sleep };
 
+// Every Chromium this process starts dies with it, also when it is stopped (Ctrl-C, or timeout's SIGTERM): otherwise
+// a killed script leaves a browser running in the background, which skews every later measurement.
+const browsers = new Set();
+const killAll = () => { for (const p of browsers) if (p.exitCode === null) try { p.kill('SIGKILL'); } catch {} };
+process.once('exit', killAll);
+for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) process.once(sig, () => { killAll(); process.exit(code); });
+
 export async function launch({ chromium = process.env.CHROMIUM || '/usr/bin/chromium', extensions = [], args = [], width = 1280, height = 800 } = {}) {
   const CHROME_MAJOR = (execFileSync(chromium, ['--version'], { encoding: 'utf8' }).match(/(\d+)\./) || [, '150'])[1];
   const base = existsSync(join(homedir(), '.cache')) ? join(homedir(), '.cache') : tmpdir();
@@ -22,6 +29,8 @@ export async function launch({ chromium = process.env.CHROMIUM || '/usr/bin/chro
     ...args, 'about:blank',
   ];
   const proc = spawn(chromium, flags, { stdio: ['ignore', 'ignore', 'pipe'] });
+  browsers.add(proc);
+  proc.once('exit', () => browsers.delete(proc));
   let stderr = '';
   proc.stderr.on('data', (d) => { stderr = (stderr + d).slice(-4000); });
   const portFile = join(profile, 'DevToolsActivePort');

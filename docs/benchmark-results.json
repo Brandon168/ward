@@ -1,18 +1,18 @@
 {
-  "date": "2026-11-07T00:01:38.169Z",
+  "date": "2026-11-07T02:54:09.546Z",
   "chromium": "Chromium 151.0.7922.173 built on Debian GNU/Linux 12 (bookworm)",
   "vaultwarden": "http://localhost:8099",
   "items": 500,
   "runs": 10,
   "versions": {
-    "ward": "0.4.4",
+    "ward": "0.6.1",
     "bitwarden": "2026.10.2"
   },
   "package": {
     "ward": {
-      "files": 26,
-      "totalKB": 726,
-      "jsKB": 374,
+      "files": 31,
+      "totalKB": 923,
+      "jsKB": 463,
       "wasmKB": 0
     },
     "bitwarden": {
@@ -28,91 +28,91 @@
       "idle": {
         "seconds": 120,
         "extCpuMs": 0,
-        "browserCpuMs": 200,
+        "browserCpuMs": 210,
         "extPssMB": 0,
-        "browserPssMB": 304.9
+        "browserPssMB": 457.6
       },
       "page": {
-        "loadMs": 35,
+        "loadMs": 37,
         "scriptMs": 0,
-        "taskMs": 23.7,
+        "taskMs": 24.8,
         "heapMB": 0.78,
         "scriptKB": 0,
-        "browserCpuMsPerLoad": 262
+        "browserCpuMsPerLoad": 253
       }
     },
     "ward": {
       "kind": "ward",
-      "loginToListMs": 538,
+      "loginToListMs": 634,
       "idle": {
         "seconds": 120,
-        "extCpuMs": 60,
-        "browserCpuMs": 270,
-        "extPssMB": 33.9,
-        "browserPssMB": 331.3,
-        "workerHeapMB": 1.6
+        "extCpuMs": 50,
+        "browserCpuMs": 280,
+        "extPssMB": 47.4,
+        "browserPssMB": 478,
+        "workerHeapMB": 1.1
       },
       "popup": {
-        "listMs": 175,
+        "listMs": 75,
         "listMsAll": [
-          148,
-          115,
-          112,
-          112,
-          109,
-          201,
-          330,
-          324,
-          417,
-          320
+          118,
+          75,
+          98,
+          99,
+          69,
+          76,
+          75,
+          72,
+          70,
+          68
         ],
-        "heapMB": 5.8,
-        "extCpuMsPerOpen": 194
+        "heapMB": 5,
+        "extCpuMsPerOpen": 94
       },
       "page": {
-        "loadMs": 45,
+        "loadMs": 42,
         "scriptMs": 2.6,
-        "taskMs": 34.8,
+        "taskMs": 32.8,
         "heapMB": 1.18,
         "scriptKB": 22.8,
-        "browserCpuMsPerLoad": 335
+        "browserCpuMsPerLoad": 275
       }
     },
     "bitwarden": {
       "kind": "bitwarden",
-      "loginToListMs": 3755,
+      "loginToListMs": 4190,
       "idle": {
         "seconds": 120,
-        "extCpuMs": 140,
-        "browserCpuMs": 520,
-        "extPssMB": 109.2,
-        "browserPssMB": 427.1,
+        "extCpuMs": 130,
+        "browserCpuMs": 510,
+        "extPssMB": 131.2,
+        "browserPssMB": 584.4,
         "workerHeapMB": 19
       },
       "popup": {
-        "listMs": 825,
+        "listMs": 924,
         "listMsAll": [
-          1270,
-          812,
-          910,
+          1322,
+          916,
+          992,
+          882,
+          984,
           911,
-          837,
-          795,
-          858,
-          778,
-          801,
-          771
+          914,
+          932,
+          947,
+          912
         ],
-        "heapMB": 45.4,
-        "extCpuMsPerOpen": 2106
+        "heapMB": 45.5,
+        "extCpuMsPerOpen": 2318
       },
       "page": {
-        "loadMs": 55,
-        "scriptMs": 111.3,
-        "taskMs": 204.9,
+        "loadMs": 54,
+        "scriptMs": 112,
+        "taskMs": 203.7,
         "heapMB": 2.96,
         "scriptKB": 1834.3,
-        "browserCpuMsPerLoad": 478
+        "browserCpuMsPerLoad": 509
       }
     }
   },

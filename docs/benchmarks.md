@@ -3,26 +3,26 @@
 Measured with [`scripts/bench.mjs`](../scripts/bench.mjs) on 2026-11-07. Raw numbers:
 [benchmark-results.json](benchmark-results.json).
 
-| | Ward 0.4.4 | Bitwarden 2026.10.2 |
+| | Ward 0.6.1 | Bitwarden 2026.10.2 |
 |---|---:|---:|
-| **Popup: open to list** (median of 10) | **175 ms** | 825 ms |
-| **Login: "Log in" click to list** (key derivation, login, full sync; 1 run) | **0.5 s** | 3.8 s |
+| **Popup: open to list** (median of 10) | **75 ms** | 924 ms |
+| **Login: "Log in" click to list** (key derivation, login, full sync; 1 run) | **0.6 s** | 4.2 s |
 | **Code added to every page** | **23 KB** | 1,834 KB |
-| **Script time added per page load** | **+2.6 ms** | +111 ms |
-| **Main-thread time added per page load** | **+11 ms** | +181 ms |
-| **Browser memory added** (whole browser, idle, unlocked) | **+26 MB** | +122 MB |
-| **Extension process memory** (idle, unlocked) | **34 MB** | 109 MB |
-| **Background worker JS heap** (after garbage collection) | **1.6 MB** | 19 MB |
-| **Popup JS heap** | **5.8 MB** | 45 MB |
-| **CPU per popup open** (extension process) | **0.19 s** | 2.1 s |
-| **CPU while idle for 2 min** (extension process) | **0.06 s** | 0.14 s |
-| **Download size** (unpacked) | **0.7 MB**, 26 files | 89 MB, 200 files |
+| **Script time added per page load** | **+2.6 ms** | +112 ms |
+| **Main-thread time added per page load** | **+8 ms** | +179 ms |
+| **Browser memory added** (whole browser, idle, unlocked) | **+20 MB** | +127 MB |
+| **Extension process memory** (idle, unlocked) | **47 MB** | 131 MB |
+| **Background worker JS heap** (after garbage collection) | **1.1 MB** | 19 MB |
+| **Popup JS heap** | **5.0 MB** | 46 MB |
+| **CPU per popup open** (extension process) | **0.09 s** | 2.3 s |
+| **CPU while idle for 2 min** (extension process) | **0.05 s** | 0.13 s |
+| **Download size** (unpacked) | **0.9 MB**, 31 files | 89 MB, 200 files |
 
 As an image: [light](ward-vs-bitwarden-light.png), [dark](ward-vs-bitwarden-dark.png)
 (`node scripts/compare-image.mjs`, from [benchmark-results.json](benchmark-results.json)).
 
 "Added" figures are compared with the same browser with no extension (page script time 0 ms, main-thread time
-23.7 ms per load, browser memory 305 MB).
+24.8 ms per load, browser memory 458 MB).
 
 ## Attack surface
 

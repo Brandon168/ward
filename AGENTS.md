@@ -11,7 +11,7 @@ findings privately). Start with README.md, ROADMAP.md, docs/security-review.md a
 - Remotes: `origin` is Brandon168/ward; `upstream` is BW Lite with push disabled. `gh repo set-default`
   is Brandon168/ward (otherwise gh resolves the `upstream` remote).
 - Version lives in `manifest.json`; bump it with user-visible changes and mention it in the commit subject, e.g. `(0.4.1)`.
-  ROADMAP.md lists shipped versions; update README "What it does today" and docs/TESTING.md when behaviour changes.
+  ROADMAP.md lists shipped versions; update README "Features" and docs/TESTING.md when behaviour changes.
 - Commit or push only when the user asks. Never tag or release unless asked.
 
 ## Checks
@@ -54,8 +54,10 @@ Preview:
   storage, clipboard or Web Locks.
 - `node scripts/screenshots.mjs` regenerates the README screenshots (`docs/screenshots/`) from those previews. Rerun
   it when a change alters what they show.
-- `docs/ward-vs-bitwarden-{light,dark}.png` (README "How it compares") come from `node scripts/compare-image.mjs`,
-  which reads `docs/benchmark-results.json`; rerun it after a new `scripts/bench.mjs` run. Keep every claim in it
-  measured or read from the manifests.
+- `node scripts/compare-image.mjs` turns `docs/benchmark-results.json` (from `scripts/bench.mjs`) into
+  `docs/ward-vs-bitwarden-{light,dark}.png`, `docs/social-preview.png` (uploaded by hand: GitHub Settings > Social
+  preview) and the README block between `<!-- compare:start -->` and `<!-- compare:end -->` (image, alt text, text
+  table for search engines and screen readers). Never edit that block by hand. Keep every claim measured or read
+  from the manifests or the repository.
 - docs/design/ holds SYSTEM.md, the original UI mockups (option E was chosen) and 0.4.0 screenshots.
 - The popup refuses to run framed; only the generated preview drops that check. Never weaken it in popup.js.
