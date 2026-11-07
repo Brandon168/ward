@@ -11,6 +11,7 @@ import { mutateAccounts, withStateLock, AUTO_LOCK_CHOICES, autoLockMinutes, shou
 import { fillTab, formFrameAllowed } from './autofill.js';
 import * as touch from './touch.js';
 import { storeSync, hasInvocation, SIGNALR_PING, syncOpenVault } from './sync.js';
+import * as gen from './gen.js';
 
 globalThis.hashwasm = createRequire(import.meta.url)('./vendor/argon2.umd.min.js');
 const SERVER = process.env.SERVER || 'http://localhost:8099';
@@ -1097,6 +1098,42 @@ assert.match(inpageSource, /const genuine = \(e\) => \{\s*if \(!e\.isTrusted[^\n
 assert.match(inpageSource, /trackVisibility: true/, 'genuine: IntersectionObserver v2 occlusion check');
 assert.match(inpageSource, /!userFocused\(f\)\) return;/, 'the menu opens only after real user focus');
 assert.match(inpageSource, /userActivation && !navigator\.userActivation\.isActive\) return;/, 'save capture needs user activation');
+
+{ // Generator: sets, lengths, uniform picks, passphrases from the EFF list, usernames
+  const eff = (await readFile(new URL('./vendor/eff_large_wordlist.txt', import.meta.url), 'utf8')).trim().split('\n').map((l) => l.split('\t')[1]);
+  assert.deepEqual(gen.WORDS, eff, 'eff_large_wordlist.js is generated from the .txt (vendor/wordlist.sh)');
+  assert.equal(new Set(gen.WORDS).size, 7776);
+  for (let i = 0; i < 200; i++) {
+    const p = gen.password({ length: 12 });
+    assert.equal(p.length, 12);
+    for (const re of [/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%^&*_-]/]) assert.match(p, re, 'one of each set');
+    assert.doesNotMatch(p, /[IlO01o]/, 'ambiguous characters avoided by default');
+  }
+  assert.match(gen.password({ length: 8, upper: false, lower: false, symbols: false }), /^[2-9]{8}$/);
+  assert.match(gen.password({ upper: false, lower: false, digits: false, symbols: false }), /^[a-km-np-z]{20}$/, 'nothing chosen: lowercase');
+  assert.equal(gen.password({ length: 3 }).length, 8, 'length is clamped');
+  assert.equal(gen.password({ length: 9999 }).length, 128);
+  assert.match(gen.password({ avoidAmbiguous: false, length: 128, upper: false, digits: false, symbols: false }), /^[a-z]{128}$/);
+  const words = gen.passphrase({ words: 6, separator: ' ', capitalize: true, number: true }).split(' ');
+  assert.equal(words.length, 6);
+  assert.equal(words.filter((w) => /\d$/.test(w)).length, 1, 'one word carries the number');
+  for (const w of words) assert.ok(gen.WORDS.includes(w.replace(/\d$/, '').toLowerCase()) && /^[A-Z]/.test(w));
+  assert.equal(gen.bits({ type: 'passphrase', words: 5 }), 64);
+  assert.equal(gen.bits({ length: 20 }), 120, '20 characters from 66 (look-alikes removed)');
+  assert.match(gen.username({ type: 'username', userType: 'plus', email: 'ann+old@example.com' }), /^ann\+[a-z-]+\d{4}@example\.com$/);
+  assert.match(gen.username({ userType: 'catchall', domain: '@mail.example.org' }), /^[a-z-]+\d{4}@mail\.example\.org$/);
+  assert.throws(() => gen.username({ userType: 'catchall', domain: 'nope' }), /catch-all domain/);
+  assert.throws(() => gen.username({ userType: 'plus', email: '' }), /email/);
+  assert.match(gen.generate({ type: 'username', capitalize: true }), /^[A-Z][a-z-]+$/);
+  assert.deepEqual(gen.normalize({ type: 'evil', length: 'x', separator: 'abcdef' }).type, 'password');
+  // uniform: 60,000 picks over 6 values stay within 3% of 10,000 each (a modulo bias over 2^32 is far smaller;
+  // this guards against a broken rejection loop)
+  const counts = new Array(6).fill(0);
+  for (let i = 0; i < 60000; i++) counts[gen.randomInt(6)]++;
+  for (const c of counts) assert.ok(Math.abs(c - 10000) < 300, `randomInt uniform: ${counts}`);
+  assert.throws(() => gen.randomInt(0));
+  console.log('generator ok');
+}
 
 if (!process.argv.includes('--integration')) process.exit(0);
 

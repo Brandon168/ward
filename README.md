@@ -61,6 +61,9 @@ Loading from a specific commit means nothing changes until you pull and reload o
 
 - Logins: search, fill (popup, in-page menu under the login field, Cmd+Shift+L), copy, add, edit, delete
 - TOTP codes, passkeys (stored in Bitwarden's format, so the official apps can use them), save/update prompts
+- Generator (dice button): passwords (length, character sets, no look-alikes), passphrases from the EFF word list,
+  and usernames (random word, email with a +tag, catch-all address); the options are remembered, and the login form's
+  Gen uses them
 - Several vaults in one list (Vaultwarden, bitwarden.com, bitwarden.eu)
 - Offline: unlock and fill from an encrypted local copy; syncs when the popup opens (if older than 5 minutes)
 - Matching follows Bitwarden's per-URL match setting and equivalent domains, with the Public Suffix List
@@ -131,4 +134,5 @@ Internal message keys still use the `bwlite` prefix so upstream fixes cherry-pic
 
 Not affiliated with Bitwarden, Inc. or the Vaultwarden project. MIT licensed. `vendor/argon2.umd.min.js` is
 [hash-wasm](https://github.com/Daninet/hash-wasm) 4.12.0 (MIT). `vendor/public_suffix_list.*` is the
-[Public Suffix List](https://publicsuffix.org/list/) (MPL 2.0).
+[Public Suffix List](https://publicsuffix.org/list/) (MPL 2.0). `vendor/eff_large_wordlist.*` is the
+[EFF Large Wordlist](https://www.eff.org/dice) for passphrases (Electronic Frontier Foundation, CC BY 3.0 US).

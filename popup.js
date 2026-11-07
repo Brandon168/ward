@@ -1,6 +1,7 @@
 import * as bw from './bw.js';
 import { fillTab, fillFormTab, formFrameAllowed } from './autofill.js';
 import * as touch from './touch.js';
+import * as gen from './gen.js';
 import { storeSync } from './sync.js';
 import { withStateLock, mutateAccounts, AUTO_LOCK_CHOICES, autoLockMinutes } from './coord.js';
 
@@ -134,7 +135,7 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'neverSave', 'clearClipboard', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'neverSave', 'clearClipboard', 'generator', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
@@ -686,6 +687,7 @@ const ICONS = {
   gear: 'M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
   person: 'M12 5a3 3 0 1 0 0 6a3 3 0 0 0 0-6M6 19a6 6 0 0 1 12 0',
   note: 'M6 3h9l4 4v14H6zM9 12h7M9 16h5',
+  dice: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2M8.5 8.5h0M15.5 8.5h0M12 12h0M8.5 15.5h0M15.5 15.5h0',
 };
 function icon(name, size = 16) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -863,7 +865,7 @@ function vaultView() {
   const stillLocked = locked().length;
   render(
     h('div', { className: 'bar' }, h('span', { className: 'brand' }, 'Ward'),
-      barBtn('plus', 'New item', () => editView(null)), syncBtn, barBtn('lock', 'Lock all vaults', lockAll), barBtn('gear', 'Settings', settingsView)),
+      barBtn('plus', 'New item', () => editView(null)), barBtn('dice', 'Generator', () => generatorView()), syncBtn, barBtn('lock', 'Lock all vaults', lockAll), barBtn('gear', 'Settings', settingsView)),
     h('header', {}, icon('search'), q), kinds, list, h('p', { id: 'status', className: 'err' }),
     (stillLocked > 0 || multi) && h('footer', {},
       h('span', {}, stillLocked > 0 && h('button', { className: 'link', onclick: unlockView }, `${stillLocked} locked`)),
@@ -954,10 +956,73 @@ function settingsView() {
     h('div', { className: 'inline' }, h('button', { className: 'primary', onclick: vaultView }, 'Done')));
 }
 
+// The edit form's Gen: a password or passphrase with the generator's saved options.
 const genPassword = () => {
-  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_';
-  return Array.from(crypto.getRandomValues(new Uint32Array(20)), (n) => cs[n % cs.length]).join('');
+  const o = gen.normalize(st.generator);
+  return gen.generate({ ...o, type: o.type === 'passphrase' ? 'passphrase' : 'password' });
 };
+
+// Ward: the generator (password, passphrase, username). Options persist in local storage (`generator`).
+// use(value): opened from a form, a Use button hands the value back there; back: where Cancel/Done goes.
+function generatorView({ type, use, back = vaultView } = {}) {
+  if (mode === 'save') return closeSave();
+  let o = gen.normalize({ ...st.generator, ...(type && { type }) });
+  if (!o.email) o.email = unlocked()[0]?.email || accounts[0]?.email || '';
+  let value = '';
+  const out = h('div', { className: 'genout', title: 'Generated value' });
+  const hint = h('p', { className: 'muted' });
+  const err = h('p', { className: 'err' });
+  const roll = () => {
+    err.textContent = '';
+    try { value = gen.generate(o); } catch (e) { value = ''; err.textContent = e.message; }
+    out.textContent = value || ' ';
+    const b = gen.bits(o);
+    hint.textContent = b ? `About ${b} bits of randomness` : 'For sign-ups; not a secret';
+  };
+  const set = (patch, redraw) => {
+    o = gen.normalize({ ...o, ...patch });
+    local.set({ generator: (st.generator = { ...o }) });
+    redraw ? draw() : roll();
+  };
+  const num = (key, label) => {
+    const el = h('input', { type: 'number', min: gen.LIMITS[key][0], max: gen.LIMITS[key][1], value: o[key],
+      onchange: () => (set({ [key]: el.value }), (el.value = o[key])) });
+    return field(label, el);
+  };
+  const text = (key, label, placeholder) => {
+    const el = h('input', { value: o[key], placeholder, oninput: () => set({ [key]: el.value }) });
+    return field(label, el);
+  };
+  const check = (key, label) => {
+    const box = h('input', { type: 'checkbox', checked: o[key], onchange: () => set({ [key]: box.checked }, true) });
+    return h('label', { className: 'check' }, box, label);
+  };
+  const userType = () => h('select', { onchange: (e) => set({ userType: e.target.value }, true) },
+    [['word', 'Random word'], ['plus', 'Email with a +tag'], ['catchall', 'Catch-all email']]
+      .map(([v, l]) => h('option', { value: v, selected: o.userType === v }, l)));
+  const options = () => (o.type === 'password'
+    ? [num('length', 'Length'), h('div', { className: 'checks' }, check('upper', 'A–Z'), check('lower', 'a–z'), check('digits', '0–9'),
+      check('symbols', '!@#$%^&*-_'), check('avoidAmbiguous', 'Avoid look-alikes (I l O 0 1 o)'))]
+    : o.type === 'passphrase'
+      ? [num('words', 'Words'), text('separator', 'Separator'), h('div', { className: 'checks' }, check('capitalize', 'Capitalize'), check('number', 'Add a number'))]
+      : [field('Kind', userType()),
+        o.userType === 'plus' ? text('email', 'Your email', 'you@example.com')
+          : o.userType === 'catchall' ? text('domain', 'Your catch-all domain', 'example.com')
+            : h('div', { className: 'checks' }, check('capitalize', 'Capitalize'), check('userNumber', 'Add 4 digits'))]);
+  const draw = () => {
+    const tabs = h('nav', { className: 'kinds' }, [['password', 'Password'], ['passphrase', 'Passphrase'], ['username', 'Username']]
+      .map(([t, l]) => h('button', { type: 'button', className: o.type === t ? 'on' : '', onclick: () => set({ type: t }, true) }, l)));
+    const copyBtn = h('button', { type: 'button', className: use ? '' : 'primary', onclick: () => value && copy(copyBtn, value, o.type !== 'username') }, 'Copy');
+    out.classList.toggle('words', o.type !== 'password'); // passphrases wrap at the separators, passwords anywhere
+    render(title('Generator'), tabs, out, hint, h('form', { onsubmit: (e) => e.preventDefault() }, ...options(),
+      h('div', { className: 'inline' },
+        use && h('button', { type: 'button', className: 'primary', onclick: () => value && use(value) }, 'Use'),
+        copyBtn, h('button', { type: 'button', title: 'Generate another', onclick: roll }, 'New'),
+        h('button', { type: 'button', onclick: back }, use ? 'Cancel' : 'Done')), err));
+    roll();
+  };
+  draw();
+}
 
 function editView(item) {
   if (mode === 'save') return closeSave();
@@ -995,13 +1060,22 @@ function editView(item) {
     },
   },
     target && field('Vault', target),
-    field('Name', name), field('Username', user),
+    field('Name', name),
+    field('Username', h('div', { className: 'inline' }, user,
+      h('button', { type: 'button', className: 'quiet', title: 'Generate a username', onclick: () => generatorView({
+        type: 'username', back: show, use: (v) => ((user.value = v), show()) }) }, icon('dice')))),
     field('Password', h('div', { className: 'inline' }, pass,
       h('button', { type: 'button', onclick: () => (pass.type = pass.type === 'password' ? 'text' : 'password') }, 'Show'),
-      h('button', { type: 'button', onclick: () => ((pass.value = genPassword()), (pass.type = 'text')) }, 'Gen'))),
+      h('button', { type: 'button', title: 'Generate with your generator settings', onclick: () => ((pass.value = genPassword()), (pass.type = 'text')) }, 'Gen'),
+      h('button', { type: 'button', className: 'quiet', title: 'Generator options', onclick: () => generatorView({
+        type: gen.normalize(st.generator).type === 'passphrase' ? 'passphrase' : 'password', back: show,
+        use: (v) => ((pass.value = v), (pass.type = 'text'), show()) }) }, icon('dice')))),
     field('TOTP', totp), field('URLs', uris), field('Notes', notes),
     h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
-  render(title(item ? 'Edit login' : 'Add login'), item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a)), form);
+  // show() also returns here from the generator with the form as it was
+  const heading = title(item ? 'Edit login' : 'Add login'), tag = item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a));
+  function show() { render(heading, tag, form); }
+  show();
   name.focus();
 }
 

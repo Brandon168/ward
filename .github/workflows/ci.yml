@@ -50,6 +50,8 @@ jobs:
             if (got !== want) { console.error("hash-wasm tarball integrity mismatch", got); process.exit(1); }'
           tar -xzf /tmp/hw.tgz -C /tmp package/dist/argon2.umd.min.js
           cmp /tmp/package/dist/argon2.umd.min.js vendor/argon2.umd.min.js
+      - name: Vendored EFF word list matches eff.org
+        run: curl -sSfL https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | cmp - vendor/eff_large_wordlist.txt
       - name: No secrets committed
         run: |
           ! git grep -nI -E '(BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16})' -- . ':!scripts/guard.mjs'

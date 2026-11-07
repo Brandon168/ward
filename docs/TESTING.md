@@ -63,6 +63,11 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     digits; it empties as the code runs out and turns red for the last 5 s.
 14. **Right-click** a username or password field: Ward → your login → Fill / Copy ….
 15. **Settings → Account → Log out** removes the vault (asks "Sure?" first). **Appearance** follows the system unless set.
+16. **Generator (0.5.0)**: the dice button in the toolbar → Password: change the length and sets; New gives another;
+    Copy, wait 30 s, paste: empty. Passphrase: 5 words by default, separator and Capitalize apply. Username: random word,
+    Email with a +tag (defaults to your vault email), Catch-all (asks for a domain). Close and reopen: your choices
+    are kept. In Add login, Gen fills with those settings; the dice next to Password or Username opens the generator
+    and Use puts the value back into the form.
 
 ## What's not there yet
 

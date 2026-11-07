@@ -18,8 +18,8 @@ const update = process.argv.includes('--update');
 
 // Files the extension ships (keep in step with pack.sh).
 const SHIPPED = ['manifest.json', 'popup.html', 'popup.css', 'popup.js', 'theme.js', 'bw.js', 'background.js', 'bridge.js',
-  'page.js', 'inpage.js', 'autofill.js', 'coord.js', 'touch.js', 'sync.js', 'formfill.js', 'offscreen.html', 'offscreen.js', 'icons', 'vendor', 'LICENSE'];
-const NOT_SHIPPED = new Set(['vendor/psl.sh', 'vendor/public_suffix_list.dat']);
+  'page.js', 'inpage.js', 'autofill.js', 'coord.js', 'touch.js', 'sync.js', 'gen.js', 'formfill.js', 'offscreen.html', 'offscreen.js', 'icons', 'vendor', 'LICENSE'];
+const NOT_SHIPPED = new Set(['vendor/psl.sh', 'vendor/public_suffix_list.dat', 'vendor/wordlist.sh', 'vendor/eff_large_wordlist.txt']);
 // Scripts injected into web pages: they run on every site, so they get the tightest budget.
 const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
 // pageScriptsBytes is what every page pays and stays strict. firstPartyJsBytes is a sanity cap: popup.js parses in

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => readFileSync(join(root, f), 'utf8');
 // Dependency order: each module's imports are created first, so their blob URLs exist when it is rewritten.
-const MODULES = ['vendor/public_suffix_list.js', 'bw.js', 'coord.js', 'autofill.js', 'touch.js', 'sync.js', 'popup.js'];
+const MODULES = ['vendor/public_suffix_list.js', 'bw.js', 'coord.js', 'autofill.js', 'touch.js', 'sync.js', 'vendor/eff_large_wordlist.js', 'gen.js', 'popup.js'];
 // The popup refuses to run framed (window !== top), and a preview panel is a frame: in these sample-data copies only,
 // shadow `top` so the popup takes itself for the top window, and `location` so a copy opens as one of the windows
 // background.js opens (#pk=, #save=). The extension itself is unchanged.
