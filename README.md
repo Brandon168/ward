@@ -10,6 +10,33 @@ are exactly what the browser runs, so a release can be reviewed line by line.
 Developed and tested on **Vivaldi on macOS**; any Chromium browser (121 or newer) should work. Firefox is not a
 target yet.
 
+<p>
+<img src="docs/screenshots/popup-light.png" width="300" alt="Ward's popup: this site's logins first with one-click copy and Fill, then recent items and everything else">
+<img src="docs/screenshots/popup-dark.png" width="300" alt="The same popup in dark mode">
+</p>
+<p>
+<img src="docs/screenshots/inpage-menu.png" width="400" alt="The menu under a login field, and the save bar after signing in">
+<img src="docs/screenshots/save-login.png" width="300" alt="Save this login? window">
+</p>
+
+Screenshots use sample data (`node scripts/screenshots.mjs`).
+
+## How it compares
+
+Same machine, same 500-item vault, Ward 0.4.4 against the official Bitwarden extension 2026.10.2:
+
+| | Ward | Bitwarden |
+|---|---:|---:|
+| Popup open to list | **175 ms** | 825 ms |
+| Code added to every page you visit | **23 KB** | 1,834 KB |
+| Script time added per page load | **+2.6 ms** | +111 ms |
+| Browser memory added (idle, unlocked) | **+26 MB** | +122 MB |
+| CPU per popup open | **0.19 s** | 2.1 s |
+| Download size | **0.7 MB** | 89 MB |
+
+Bitwarden does more (generator, Send, SSO, organisations, richer autofill), so this isn't a like-for-like feature
+comparison. Method, caveats and the full table: [docs/benchmarks.md](docs/benchmarks.md).
+
 ## Status
 
 Early release (0.4.x), not yet widely tested. See [ROADMAP.md](ROADMAP.md) for what's
@@ -87,6 +114,8 @@ docker run -d --name ward-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STOR
 node test.mjs --integration         # against the disposable Vaultwarden above
 node scripts/guard.mjs              # security guard rails
 ./pack.sh                           # dist/ward-<version>.zip
+node scripts/screenshots.mjs        # docs/screenshots/ from the sample-data previews (needs Chromium)
+node scripts/bench.mjs --bitwarden <dir>   # speed/memory/CPU vs Bitwarden, see docs/benchmarks.md
 ```
 
 UI preview: `node scripts/preview.mjs` writes `preview/ward-popup.html` (git-ignored), the real popup with sample data

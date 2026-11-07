@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-07T00:01:38.169Z",
+  "chromium": "Chromium 151.0.7922.173 built on Debian GNU/Linux 12 (bookworm)",
+  "vaultwarden": "http://localhost:8099",
+  "items": 500,
+  "runs": 10,
+  "versions": {
+    "ward": "0.4.4",
+    "bitwarden": "2026.10.2"
+  },
+  "package": {
+    "ward": {
+      "files": 26,
+      "totalKB": 726,
+      "jsKB": 374,
+      "wasmKB": 0
+    },
+    "bitwarden": {
+      "files": 200,
+      "totalKB": 91587,
+      "jsKB": 17515,
+      "wasmKB": 16284
+    }
+  },
+  "browsers": {
+    "none": {
+      "kind": "none",
+      "idle": {
+        "seconds": 120,
+        "extCpuMs": 0,
+        "browserCpuMs": 200,
+        "extPssMB": 0,
+        "browserPssMB": 304.9
+      },
+      "page": {
+        "loadMs": 35,
+        "scriptMs": 0,
+        "taskMs": 23.7,
+        "heapMB": 0.78,
+        "scriptKB": 0,
+        "browserCpuMsPerLoad": 262
+      }
+    },
+    "ward": {
+      "kind": "ward",
+      "loginToListMs": 538,
+      "idle": {
+        "seconds": 120,
+        "extCpuMs": 60,
+        "browserCpuMs": 270,
+        "extPssMB": 33.9,
+        "browserPssMB": 331.3,
+        "workerHeapMB": 1.6
+      },
+      "popup": {
+        "listMs": 175,
+        "listMsAll": [
+          148,
+          115,
+          112,
+          112,
+          109,
+          201,
+          330,
+          324,
+          417,
+          320
+        ],
+        "heapMB": 5.8,
+        "extCpuMsPerOpen": 194
+      },
+      "page": {
+        "loadMs": 45,
+        "scriptMs": 2.6,
+        "taskMs": 34.8,
+        "heapMB": 1.18,
+        "scriptKB": 22.8,
+        "browserCpuMsPerLoad": 335
+      }
+    },
+    "bitwarden": {
+      "kind": "bitwarden",
+      "loginToListMs": 3755,
+      "idle": {
+        "seconds": 120,
+        "extCpuMs": 140,
+        "browserCpuMs": 520,
+        "extPssMB": 109.2,
+        "browserPssMB": 427.1,
+        "workerHeapMB": 19
+      },
+      "popup": {
+        "listMs": 825,
+        "listMsAll": [
+          1270,
+          812,
+          910,
+          911,
+          837,
+          795,
+          858,
+          778,
+          801,
+          771
+        ],
+        "heapMB": 45.4,
+        "extCpuMsPerOpen": 2106
+      },
+      "page": {
+        "loadMs": 55,
+        "scriptMs": 111.3,
+        "taskMs": 204.9,
+        "heapMB": 2.96,
+        "scriptKB": 1834.3,
+        "browserCpuMsPerLoad": 478
+      }
+    }
+  }
+}

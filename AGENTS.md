@@ -44,5 +44,7 @@ Preview:
   `ward-inpage.html` (a sample sign-in page running the real inpage.js: field menu, save bar). Rebuild after every UI
   change. It must keep working in a sandboxed HTML preview panel: inline scripts and blob: modules only, no network,
   storage, clipboard or Web Locks.
+- `node scripts/screenshots.mjs` regenerates the README screenshots (`docs/screenshots/`) from those previews. Rerun
+  it when a change alters what they show.
 - docs/design/ holds SYSTEM.md, the original UI mockups (option E was chosen) and 0.4.0 screenshots.
 - The popup refuses to run framed; only the generated preview drops that check. Never weaken it in popup.js.
