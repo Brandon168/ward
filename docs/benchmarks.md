@@ -18,8 +18,26 @@ Measured with [`scripts/bench.mjs`](../scripts/bench.mjs) on 2026-11-07. Raw num
 | **CPU while idle for 2 min** (extension process) | **0.06 s** | 0.14 s |
 | **Download size** (unpacked) | **0.7 MB**, 26 files | 89 MB, 200 files |
 
+As an image: [light](ward-vs-bitwarden-light.png), [dark](ward-vs-bitwarden-dark.png)
+(`node scripts/compare-image.mjs`, from [benchmark-results.json](benchmark-results.json)).
+
 "Added" figures are compared with the same browser with no extension (page script time 0 ms, main-thread time
 23.7 ms per load, browser memory 305 MB).
+
+## Attack surface
+
+Read from each extension's `manifest.json` and shipped files (`surface` in benchmark-results.json).
+
+| | Ward | Bitwarden |
+|---|---|---|
+| Browser permissions requested | **9** | 16 + 2 optional |
+| Files any website can load from the extension (`web_accessible_resources`) | **0** | 8 |
+| Runs inside local files (`file://`) | **No** | Yes |
+| Code injected into every page | **23 KB** | 1,834 KB |
+| What ships | **Its readable source, no build step, plus 1 vendored library** (hash-wasm, checked against npm in CI) | 33 MB of minified JS and WebAssembly (built from open source) |
+
+Bitwarden has independent security audits; Ward has had its own reviews ([security-review.md](security-review.md)).
+Less code is not proof of safety, but it is less to attack and less to review.
 
 ## Setup
 

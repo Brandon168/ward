@@ -115,5 +115,21 @@
         "browserCpuMsPerLoad": 478
       }
     }
+  },
+  "surface": {
+    "ward": {
+      "permissions": 9,
+      "optionalPermissions": 0,
+      "webAccessibleResources": 0,
+      "fileUrls": false,
+      "minified": false
+    },
+    "bitwarden": {
+      "permissions": 16,
+      "optionalPermissions": 2,
+      "webAccessibleResources": 8,
+      "fileUrls": true,
+      "minified": true
+    }
   }
 }

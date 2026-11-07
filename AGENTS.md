@@ -46,5 +46,8 @@ Preview:
   storage, clipboard or Web Locks.
 - `node scripts/screenshots.mjs` regenerates the README screenshots (`docs/screenshots/`) from those previews. Rerun
   it when a change alters what they show.
+- `docs/ward-vs-bitwarden-{light,dark}.png` (README "How it compares") come from `node scripts/compare-image.mjs`,
+  which reads `docs/benchmark-results.json`; rerun it after a new `scripts/bench.mjs` run. Keep every claim in it
+  measured or read from the manifests.
 - docs/design/ holds SYSTEM.md, the original UI mockups (option E was chosen) and 0.4.0 screenshots.
 - The popup refuses to run framed; only the generated preview drops that check. Never weaken it in popup.js.

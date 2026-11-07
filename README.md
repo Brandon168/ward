@@ -10,6 +10,19 @@ are exactly what the browser runs, so a release can be reviewed line by line.
 Developed and tested on **Vivaldi on macOS**; any Chromium browser (121 or newer) should work. Firefox is not a
 target yet.
 
+## How it compares
+
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/ward-vs-bitwarden-dark.png">
+<img src="docs/ward-vs-bitwarden-light.png" width="720" alt="Ward vs the Bitwarden extension on the same 500-item vault: popup opens in 175 ms vs 825 ms (4.7 times faster), log in and sync 0.5 s vs 3.8 s, 23 KB vs 1,834 KB of code added to every page (80 times less), 2.6 ms vs 111 ms script time per page load, 26 MB vs 122 MB browser memory added, 0.7 MB vs 89 MB install size. Attack surface: 9 vs 16 browser permissions, 0 vs 8 files any website can load from the extension, does not run inside local files, ships its readable source.">
+</picture>
+
+Same machine, same vault, the everyday features both have. Bitwarden does more (Send, SSO, organisations, a fuller
+generator) and has independent audits, so this isn't a like-for-like feature comparison. Method, caveats and the
+numbers as tables: [docs/benchmarks.md](docs/benchmarks.md).
+
+## Screenshots
+
 <p>
 <img src="docs/screenshots/popup-light.png" width="300" alt="Ward's popup: this site's logins first with one-click copy and Fill, then recent items and everything else">
 <img src="docs/screenshots/popup-dark.png" width="300" alt="The same popup in dark mode">
@@ -20,22 +33,6 @@ target yet.
 </p>
 
 Screenshots use sample data (`node scripts/screenshots.mjs`).
-
-## How it compares
-
-Same machine, same 500-item vault, Ward 0.4.4 against the official Bitwarden extension 2026.10.2:
-
-| | Ward | Bitwarden |
-|---|---:|---:|
-| Popup open to list | **175 ms** | 825 ms |
-| Code added to every page you visit | **23 KB** | 1,834 KB |
-| Script time added per page load | **+2.6 ms** | +111 ms |
-| Browser memory added (idle, unlocked) | **+26 MB** | +122 MB |
-| CPU per popup open | **0.19 s** | 2.1 s |
-| Download size | **0.7 MB** | 89 MB |
-
-Bitwarden does more (generator, Send, SSO, organisations, richer autofill), so this isn't a like-for-like feature
-comparison. Method, caveats and the full table: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Status
 
