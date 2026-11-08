@@ -27,6 +27,8 @@
   default in Settings > Matching, e.g. Host so a.example.com's login stays off b.example.com (0.7.1)
 - Fix: no more "Cannot read properties of undefined (reading 'sendMessage')" on pages left open while Ward was
   reloaded or updated; the old in-page copy stays quiet (0.7.2)
+- Fix: picking a login in Ward's in-page menu fills it on sites whose login popover closes on a click outside it
+  (southwest.com); the page no longer sees presses on the menu (0.7.3)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

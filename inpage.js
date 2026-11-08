@@ -84,7 +84,18 @@ if (!globalThis.bwliteFill) {
       --line: #e3e6ea; --accent: #2f6fec; box-shadow: 0 8px 24px #0f172a1f, 0 1px 3px #0f172a14; } }`;
   const PALETTE = ['#2f6fec', '#e2553f', '#16a34a', '#9333ea', '#ea8a0c', '#0891b2', '#db2777', '#4b5563']; // popup.js
   const hue = (s) => PALETTE[[...String(s || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
-  const pick = (b, message, fillKey) => b.addEventListener('click', async (e) => {
+  // Ward: the page never sees presses on the menu (southwest.com's login popover closes on any outside mouseup).
+  // document_start, so these run before the page's window listeners; the click goes to the row under the pointer.
+  let menuRoot, menuActions = new Map();
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'auxclick', 'dblclick', 'contextmenu']) {
+    addEventListener(t, (e) => {
+      if (!menu || e.target !== menu) return;
+      e.stopImmediatePropagation();
+      if (t === 'mousedown') e.preventDefault(); // keep focus in the field so the click lands
+      if (t === 'click') menuActions.get(menuRoot.elementFromPoint(e.clientX, e.clientY)?.closest('button'))?.(e);
+    }, true);
+  }
+  const pick = (b, message, fillKey) => menuActions.set(b, async (e) => {
     // the page can hide this menu and draw a decoy over or under it: act only on a click on the visible menu
     const verdict = genuine(e);
     if (verdict === 'wait') return;
@@ -99,7 +110,8 @@ if (!globalThis.bwliteFill) {
     menuFor = field;
     menu = document.createElement('bwlite-menu');
     menu.style.cssText = `all: initial; position: fixed; z-index: 2147483647; left: ${r.left}px; top: ${r.bottom + 4}px;`;
-    const root = menu.attachShadow({ mode: 'closed' });
+    const root = menuRoot = menu.attachShadow({ mode: 'closed' });
+    menuActions = new Map();
     root.append(el('style', `${THEME}
       .box { min-width: ${Math.max(r.width, 240)}px; max-width: 360px; padding: 4px; }
       .head { padding: 4px 8px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -134,7 +146,6 @@ if (!globalThis.bwliteFill) {
       b.title = 'Hand this sign-in to the browser: a phone, security key or the computer\'s own passkeys';
       pick(b, { wardPasskey: 'device' });
     }
-    root.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the field so the click lands
     document.documentElement.append(menu);
     menuShownAt = performance.now();
     menuRect = rectOf(menu);

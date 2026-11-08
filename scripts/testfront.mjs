@@ -1,6 +1,6 @@
 // Shared by scripts/bench.mjs and scripts/e2e-twostep.mjs (not shipped, not run in CI):
 // - startFront(): a local TLS front. https://vault.test proxies to a throwaway Vaultwarden (HTTP and WebSocket),
-//   https://login.test serves a plain sign-in page (and /passkey, one with passkey autofill). Chromium reaches them through the returned flags; every other
+//   https://login.test serves a plain sign-in page (and /passkey, one with passkey autofill; /popover, one that closes on a press outside). Chromium reaches them through the returned flags; every other
 //   host is blocked. Vaultwarden needs DOMAIN=https://vault.test for security keys (WebAuthn checks the origin).
 // - register(): a new Vaultwarden account with Ward's own crypto (registration is not part of the extension).
 import { createServer as https } from 'node:https';
@@ -50,6 +50,15 @@ const PASSKEY = `<!doctype html><html><head><meta charset="utf-8"><title>Passkey
   };
 </script></body></html>`;
 
+// https://login.test/popover: a login popover that closes on a press outside it, the way southwest.com does: a window
+// capture listener (added before any extension's document_idle scripts) removes the form on mouseup and focuses the
+// toggle. Ward's menu sits outside the popover, so the page must never see presses on it.
+const POPOVER = `<!doctype html><html><head><meta charset="utf-8"><title>Popover sign in</title><script>
+addEventListener('mouseup', (e) => { const pop = document.getElementById('pop'); if (pop && !pop.contains(e.target)) { pop.remove(); document.getElementById('toggle').focus(); } }, true);
+</script></head><body style="font:15px system-ui;padding:60px"><button id="toggle">Log in</button>
+<form id="pop" onsubmit="return false" style="width:300px;margin-top:8px"><input id="u" name="username" style="display:block;width:100%;padding:8px">
+<input id="p" name="password" type="password" style="display:block;width:100%;padding:8px;margin-top:8px"></form></body></html>`;
+
 export async function startFront({ upstream = 'http://localhost:8099', port = 8443 } = {}) {
   const work = mkdtempSync(join(homedir(), '.cache', 'ward-front-'));
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=vault.test',
@@ -58,7 +67,7 @@ export async function startFront({ upstream = 'http://localhost:8099', port = 84
   const server = https({ key: readFileSync(join(work, 'key.pem')), cert: readFileSync(join(work, 'cert.pem')) }, (req, res) => {
     if ((req.headers.host || '').startsWith('login.test')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(req.url === '/passkey' ? PASSKEY : SIGNIN);
+      return res.end(req.url === '/passkey' ? PASSKEY : req.url === '/popover' ? POPOVER : SIGNIN);
     }
     const p = request({ host: up.hostname, port: up.port, path: req.url, method: req.method, headers: { ...req.headers, host: up.host } }, (r) => {
       res.writeHead(r.statusCode, r.headers);

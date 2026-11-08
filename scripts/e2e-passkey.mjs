@@ -3,7 +3,8 @@
 // The vault holds a passkey for login.test; https://login.test/passkey (scripts/testfront.mjs) asks for passkey
 // autofill on its username field. Checks: Ward's menu lists the passkey first, a click signs in without a window and
 // the site's key verifies the signature; the page aborting for its own button falls through to Ward's passkey window;
-// "Use device or security key" hands the request to the browser (a virtual authenticator here). Not in CI (needs
+// "Use device or security key" hands the request to the browser (a virtual authenticator here); a login popover that
+// closes on presses outside it (like southwest.com) still fills from the menu (/popover). Not in CI (needs
 // Chromium); run it after changing page.js, bridge.js, the menu in inpage.js or the passkey part of background.js:
 //   docker run -d --name ward-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true -e DOMAIN=https://vault.test \
 //     -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 vaultwarden/server:1.37.5
@@ -123,6 +124,18 @@ try {
   assert.equal(dev.user, 'user-dev', `the browser's authenticator answered: ${JSON.stringify(dev)}`);
   assert.equal((await pkWindows()).length, 0, 'and no Ward window');
   console.log('"Use device or security key" hands it to the browser');
+
+  // 4. A login popover that closes on a press outside it (southwest.com): picking a row still fills, the popover stays.
+  const pop = await b.newPage('https://login.test/popover');
+  await pop.send('DOM.enable');
+  await sleep(500);
+  rows = await openMenu(pop);
+  const ann = rows.find((r) => r.text.endsWith('ann'));
+  await pop.click(ann.x, ann.y);
+  await pop.waitFor(`document.getElementById('u')?.value === 'ann'`, 5000);
+  assert.deepEqual(await pop.eval(`[document.getElementById('p').value, document.activeElement.id]`), ['pw-ann', 'p'],
+    'the popover kept its fields and Ward filled them');
+  console.log('a popover that closes on outside presses still fills from the menu');
   console.log('passkey autofill e2e ok');
 } finally {
   await b.close();

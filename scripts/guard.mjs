@@ -26,7 +26,8 @@ const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
 // ~1.4 ms (measured 2026-11-06), so the popup is not split; raise this only with a reason in the commit.
 // 230 -> 240 KB (2026-11-07): two-step login, the generator and the speed work (chunked list, caches, fast paths).
 // 240 -> 245 KB (2026-11-06): passkey autofill in the in-page menu (0.7.0).
-const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 245_000 };
+// 245 -> 246 KB (2026-11-08): the in-page menu hides presses from the page so popovers stay open (0.7.3).
+const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 246_000 };
 
 const read = (f) => readFileSync(join(root, f), 'utf8');
 const sha256 = (f) => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');
