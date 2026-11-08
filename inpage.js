@@ -2,6 +2,9 @@
 // shows the "save this login?" bar (popup.html in a frame). fillTab (autofill.js) also injects it into tabs opened
 // before the extension was loaded, hence the guard.
 if (!globalThis.bwliteFill) {
+  // To background.js. When Ward is reloaded or updated under an open page, this copy is cut off (chrome.runtime is gone
+  // or sendMessage throws "Extension context invalidated"): it then answers null and stays quiet.
+  const ask = (m) => { try { if (chrome.runtime?.id) return chrome.runtime.sendMessage(m).catch(() => null); } catch {} return Promise.resolve(null); };
   // off-screen, invisible or untabbable fields are honeypots, not the username. Not opacity: sites animate it.
   const visible = (i) => {
     if (i.disabled || i.readOnly || i.tabIndex === -1) return false;
@@ -87,8 +90,8 @@ if (!globalThis.bwliteFill) {
     if (verdict === 'wait') return;
     if (verdict !== 'ok') return closeMenu();
     closeMenu();
-    if (message) return chrome.runtime.sendMessage(message).catch(() => {});
-    const c = await chrome.runtime.sendMessage({ bwliteFillKey: fillKey }).catch(() => null);
+    if (message) return ask(message);
+    const c = await ask({ bwliteFillKey: fillKey });
     if (c) bwliteFill(c.username, c.password, c.code);
   });
   function showMenu(field, logins) {
@@ -150,7 +153,7 @@ if (!globalThis.bwliteFill) {
     const { user, pw } = loginFields(false);
     if ((f !== user && f !== pw) || f.autocomplete === 'new-password' || !userFocused(f)) return;
     // wardHeld (bridge.js): Ward holds this page's passkey autofill request, so ask for its passkeys too
-    const logins = await chrome.runtime.sendMessage({ bwliteMenu: true, ...(globalThis.wardHeld && { pk: true }) }).catch(() => null);
+    const logins = await ask({ bwliteMenu: true, ...(globalThis.wardHeld && { pk: true }) });
     if (logins?.length && document.activeElement === f && !menu) showMenu(f, logins);
   }
   // click too: a field the page focused before this script ran (autofocus) gets no focusin when clicked
@@ -178,7 +181,7 @@ if (!globalThis.bwliteFill) {
     if (!watching && el.type !== 'password' && location.protocol === 'https:'
       && FORMISH.test(`${el.autocomplete} ${el.name} ${el.id} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`)) {
       watching = true;
-      chrome.runtime.sendMessage({ wardWatch: true }).catch(() => {});
+      ask({ wardWatch: true });
     }
   };
   document.addEventListener('input', note, true);
@@ -189,7 +192,7 @@ if (!globalThis.bwliteFill) {
     // a watched card/address form (formfill.js) sends its draft; otherwise just say a form was submitted, which
     // completes a draft from a payment iframe (the Pay button is in this frame, the card fields in the iframe)
     if (globalThis.wardOnSubmit) globalThis.wardOnSubmit();
-    else chrome.runtime.sendMessage({ wardDraft: { submit: true } }).catch(() => {});
+    else ask({ wardDraft: { submit: true } });
     const { all, user } = loginFields(true);
     const pws = all.filter((i) => i.type === 'password' && i.value && typed.get(i) === i.value);
     const username = user?.value.trim() || '';
@@ -197,7 +200,7 @@ if (!globalThis.bwliteFill) {
     const sig = `${username}\n${pws.at(-1)?.value || ''}`;
     if (sig === lastSent && performance.now() - lastAt < 2000) return; // the same values again: once is enough
     lastSent = sig, lastAt = performance.now();
-    if (pws.length || username) chrome.runtime.sendMessage({ bwliteSubmit: { username, password: pws.at(-1)?.value || '' } }).catch(() => {});
+    if (pws.length || username) ask({ bwliteSubmit: { username, password: pws.at(-1)?.value || '' } });
   }
   document.addEventListener('submit', capture, true);
   document.addEventListener('keydown', (e) => e.isTrusted && e.key === 'Enter' && e.target instanceof HTMLInputElement && capture(), true);
@@ -238,7 +241,7 @@ if (!globalThis.bwliteFill) {
     const review = button(box, 'Review save', async (e) => {
       if (!e.isTrusted) return;
       review.disabled = true;
-      const result = await chrome.runtime.sendMessage({ bwliteSaveOpen: key }).catch(() => null);
+      const result = await ask({ bwliteSaveOpen: key });
       if (result?.opened) removeBar();
       else review.disabled = false;
     });

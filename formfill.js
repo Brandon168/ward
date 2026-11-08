@@ -181,7 +181,7 @@
     const draft = (submit) => {
       const card = readForm('card', true), identity = readForm('identity', true);
       if (!submit && !Object.keys(card).length && !Object.keys(identity).length) return;
-      chrome.runtime.sendMessage({ wardDraft: { card, identity, submit: !!submit } }).catch(() => {});
+      try { chrome.runtime.sendMessage({ wardDraft: { card, identity, submit: !!submit } }).catch(() => {}); } catch {} // Ward reloaded under the page
     };
     const soon = () => { clearTimeout(timer); timer = setTimeout(() => draft(false), 400); };
     document.addEventListener('input', (e) => e.isTrusted && soon(), true);

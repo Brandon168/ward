@@ -25,6 +25,8 @@
   one click signs in, "Use device or security key" hands it to the browser); honours the site's abort; setting (0.7.0)
 - Match detection: a picker per URL in the login form (base domain, host, starts with, exact, regex, never) and a
   default in Settings > Matching, e.g. Host so a.example.com's login stays off b.example.com (0.7.1)
+- Fix: no more "Cannot read properties of undefined (reading 'sendMessage')" on pages left open while Ward was
+  reloaded or updated; the old in-page copy stays quiet (0.7.2)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

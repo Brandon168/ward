@@ -1326,6 +1326,22 @@ const inpageSource = await readFile('./inpage.js', 'utf8');
     for (const f of on.click) assert.doesNotThrow(() => f({ isTrusted: true, target: button }), 'a click on a page without login fields');
   }
   assert.ok(!sent.some((m) => m.bwliteSubmit), 'no login to offer when there is no username or password');
+  // Ward reloaded or updated under an open page: the old copy loses chrome.runtime (or sendMessage throws).
+  // A submit there used to throw "Cannot read properties of undefined (reading 'sendMessage')".
+  const pw = Object.assign(input('password'), { type: 'password', value: 'typed' });
+  for (const cutOff of [(c) => (c.chrome.runtime = undefined), (c) => (c.chrome.runtime = { get id() { throw new Error('Extension context invalidated.'); } })]) {
+    const ctx = {
+      HTMLInputElement: HTMLInput, HTMLSelectElement: class {}, HTMLTextAreaElement: class {}, Node: El, performance, scrollX: 0, scrollY: 0,
+      getComputedStyle: () => ({ visibility: 'visible' }), location: { protocol: 'https:' }, navigator: {}, addEventListener() {},
+      document: { activeElement: null, querySelectorAll: () => [input('user'), pw], addEventListener: (t, f) => (on[t] ||= []).push(f) },
+      chrome: { runtime: { id: 'x', sendMessage: async (m) => (sent.push(m), null), onMessage: { addListener() {} } } },
+    };
+    ctx.globalThis = ctx;
+    for (const k in on) delete on[k];
+    vm.runInNewContext(inpageSource, ctx);
+    cutOff(ctx);
+    for (const f of [...on.click, ...on.submit]) assert.doesNotThrow(() => f({ isTrusted: true, target: button }), 'no error once Ward is cut off');
+  }
 }
 assert.equal(inpageSource.includes('popup.html#save='), false, 'the page bar cannot frame the extension popup');
 assert.equal(inpageSource.includes('attachShadow({ mode: \'closed\' })'), true, 'the save token stays in a closed extension bar');

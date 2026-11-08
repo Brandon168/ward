@@ -242,8 +242,12 @@ export function cardBrand(number) {
 // Created on first sort: the first Intl object loads locale data, which a popup or worker start shouldn't wait for.
 let collatorObj;
 const collator = { compare: (a, b) => (collatorObj ||= new Intl.Collator()).compare(a, b) };
+// Custom fields (Bitwarden's text 0, hidden 1, checkbox 2 and linked 3 fields), as { type, name, value, linkedId? }.
+const decFields = (c, key) => (c.fields?.length ? Promise.all(c.fields.map(async (f) => ({ type: f.type ?? 0,
+  name: await decStr(f.name, key), value: await decStr(f.value, key), ...(f.linkedId != null && { linkedId: f.linkedId }) }))) : undefined);
 // prev: Map of id -> earlier result; entries whose revisionDate is unchanged are reused instead of decrypted again.
-export async function decryptVault(sync, userKey, prev) {
+// full: also decrypt custom fields (an item opened in the popup; the list never needs them, so a sync skips them).
+export async function decryptVault(sync, userKey, prev, full) {
   const priv = sync.profile.privateKey && (await decrypt(sync.profile.privateKey, userKey));
   const orgKeys = {};
   for (const o of sync.profile.organizations || []) if (o.key) orgKeys[o.id] = await rsaDecrypt(o.key, priv);
@@ -254,7 +258,7 @@ export async function decryptVault(sync, userKey, prev) {
       if (c.type !== 1) { // Ward: secure notes, cards, identities. uris: [] keeps them out of every site match.
         const [name, notes] = await Promise.all([c.name, c.notes].map((x) => decStr(x, key)));
         const base = { id: c.id, rev: c.revisionDate, type: c.type, raw: c, key, name, notes, uris: [],
-          reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined };
+          reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined, fields: full ? await decFields(c, key) : undefined };
         const dec = async (obj, fields) => nonEmpty(Object.fromEntries(await Promise.all(fields.map(async (k) => [k, await decStr(obj?.[k], key)]))));
         if (c.type === 3) return { ...base, card: await dec(c.card, CARD_FIELDS) };
         if (c.type === 4) return { ...base, identity: await dec(c.identity, IDENTITY_FIELDS) };
@@ -267,7 +271,7 @@ export async function decryptVault(sync, userKey, prev) {
         Object.fromEntries(await Promise.all(PASSKEY_FIELDS.map(async (k) => [k, await decStr(f[k], key)]))))) : undefined;
       const m = l.uris?.some((u) => u.match != null) ? l.uris.map((u) => u.match) : undefined; // per-URI match type, when any is set
       return withDomains({ id: c.id, rev: c.revisionDate, raw: c, key, name, notes, username, password, totp, uris, m, passkeys,
-        reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined }); // undefined keeps the cached JSON small
+        fields: full ? await decFields(c, key) : undefined, reprompt: c.reprompt === 1 || undefined, viewPassword: c.viewPassword === false ? false : undefined }); // undefined keeps the cached JSON small
     } catch (e) {
       console.warn('Skipping undecryptable item', c.id, e);
     }
@@ -276,9 +280,24 @@ export async function decryptVault(sync, userKey, prev) {
 }
 
 // item: a decryptVault() entry to edit, or null to create. Starts from the synced (still encrypted) cipher so
-// fields this client doesn't show (custom fields, passkeys, attachments, history) are sent back untouched.
-// Ward: notes, cards and identities. v: { type, name, notes, card?, identity? }; fields this client doesn't show
-// (custom fields, attachments, password history) are sent back untouched, as for logins.
+// fields this client doesn't show (passkeys, attachments, history) are sent back untouched.
+// v.fields: [{ type, name, value, linkedId?, keep? }] replaces the custom fields; keep: the index of a stored field
+// whose value goes back as it was (a hidden value an organization keeps out of view). Without v.fields they are kept.
+async function encFields(c, v, key) {
+  if (v.fields == null) return;
+  if (!Array.isArray(v.fields)) throw new Error('Custom fields are invalid');
+  const old = Array.isArray(c.fields) ? c.fields : [];
+  const e = (x) => (x == null || x === '' ? null : encrypt(String(x), key));
+  const out = await Promise.all(v.fields.map(async (f) => {
+    const type = [0, 1, 2, 3].includes(f?.type) ? f.type : 0;
+    if (type === 3 && !Number.isInteger(f.linkedId)) throw new Error('A linked field has no target');
+    return { type, name: await e(f.name), value: f.keep != null ? old[f.keep]?.value ?? null : type === 3 ? null : await e(type === 2 ? String(f.value === true || f.value === 'true') : f.value),
+      linkedId: type === 3 ? f.linkedId : null };
+  }));
+  c.fields = out.length ? out : null;
+}
+// Ward: notes, cards and identities. v: { type, name, notes, card?, identity?, fields? }; fields this client doesn't
+// show (attachments, password history) are sent back untouched, as for logins.
 async function saveOther(s, userKey, item, v, type) {
   if (item?.raw?.edit === false) throw new Error('This item is read-only');
   if (item && (!item.raw || typeof item.raw !== 'object' || !item.id)) throw new Error('Item data is incomplete; sync and try again');
@@ -291,6 +310,7 @@ async function saveOther(s, userKey, item, v, type) {
   if (type === 2) c.secureNote = { type: 0, ...(c.secureNote || {}) };
   if (type === 3) c.card = await enc(CARD_FIELDS, { ...v.card, brand: v.card?.brand || cardBrand(v.card?.number) }, c.card);
   if (type === 4) c.identity = await enc(IDENTITY_FIELDS, v.identity, c.identity);
+  await encFields(c, v, key);
   return send(s, item, c);
 }
 async function send(s, item, c) {
@@ -335,6 +355,7 @@ export async function saveCipher(s, userKey, item, v) {
   if (v.passkey) c.login.fido2Credentials = [{
     ...Object.fromEntries(await Promise.all(PASSKEY_FIELDS.map(async (k) => [k, await e(v.passkey[k])]))), creationDate: v.passkey.creationDate }];
   delete c.login.uri; // legacy single-URI field; the server would append it to uris
+  await encFields(c, v, key);
   return send(s, item, c);
 }
 
