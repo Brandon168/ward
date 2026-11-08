@@ -47,7 +47,7 @@ const render = (...kids) => app.replaceChildren(...kids.filter((k) => k != null 
 const field = (label, el) => h('label', {}, label, el);
 const title = (text) => h('h1', {}, text);
 const newId = () => crypto.randomUUID().slice(0, 8);
-const strip = ({ raw, key, notes, fields, ...listFields }) => (notes ? { ...listFields, note: true } : listFields);
+const strip = ({ raw, key, notes, ...listFields }) => (notes ? { ...listFields, note: true } : listFields);
 const validList = (items) => Array.isArray(items) && items.every((i) => i && typeof i.id === 'string' && Array.isArray(i.uris)
   && i.uris.every((u) => typeof u === 'string') && (!i.passkeys || Array.isArray(i.passkeys)));
 const keyBytes = (encoded) => {
@@ -593,7 +593,7 @@ async function fullItem(a, raw) {
   if (!a || !keys[a.id] || !raw || typeof raw !== 'object') throw new Error('Login is no longer available; sync and try again');
   const { [`${a.id}:profile`]: profile } = await local.get(`${a.id}:profile`);
   if (!profile || typeof profile !== 'object' || typeof profile.privateKey !== 'string') throw new Error('Vault data is missing; sync and try again');
-  const [item] = await bw.decryptVault({ profile, ciphers: [raw] }, keys[a.id], null, true);
+  const [item] = await bw.decryptVault({ profile, ciphers: [raw] }, keys[a.id]);
   if (!item) throw new Error('Could not decrypt this login; sync and try again');
   return { ...item, a: a.id };
 }
@@ -609,14 +609,12 @@ async function latestList(a) {
   return Array.isArray(lists[a.id]) ? lists[a.id] : [];
 }
 
-// The list only holds what it shows; the details and editing need the raw cipher and its key.
+// The list only holds what it shows; editing needs the raw cipher and its key.
 async function loadItem(i) {
   const k = `${i.a}:c:${i.id}`;
   return fullItem(acct(i.a), (await local.get(k))[k]);
 }
-// opts: { fill } from the vault list when the item can be filled on this page.
-const openItem = async (i, opts, confirmed) => (i.reprompt && !confirmed
-  ? repromptView(i, () => openItem(i, opts, true).catch((e) => status(e.message))) : itemView(await loadItem(i), opts));
+const openEdit = async (i, confirmed) => (i.reprompt && !confirmed ? repromptView(i, () => openEdit(i, true).catch((e) => status(e.message))) : editView(await loadItem(i)));
 
 // Bitwarden's master password re-prompt: the password must open this vault's key again, then the list comes back and next runs.
 function repromptView(i, next) {
@@ -754,9 +752,6 @@ const ICONS = {
   mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
-  open: 'M9 6l6 6-6 6',
-  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6',
-  launch: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   check: 'M5 12l5 5 9-10',
   plus: 'M12 5v14M5 12h14',
   x: 'M6 6l12 12M18 6 6 18',
@@ -839,8 +834,7 @@ function vaultView() {
   const kinds = h('nav', { className: 'kinds' });
   const list = h('div', { className: 'list' });
   const fillable = (i) => (typeOf(i) === 1 ? here.includes(i) : (typeOf(i) === 3 || typeOf(i) === 4) && formPage);
-  const open = (i) => openItem(i, fillable(i) ? { fill: () => fill(i, true) } : {}).catch((e) => status(e.message));
-  const primary = (i) => (fillable(i) ? fill(i) : open(i));
+  const primary = (i) => (fillable(i) ? fill(i) : openEdit(i).catch((e) => status(e.message)));
   const act = (name, title, fn, className = '') => {
     const b = h('button', { title, className }, icon(name));
     b.addEventListener('click', (e) => (e.stopPropagation(), fn(b)));
@@ -869,7 +863,7 @@ function vaultView() {
     } else if (i.note) {
       out.push(act('copy', `Copy note · ${i.name}`, (b) => guarded(i, () => loadItem(i).then((f) => copy(b, f.notes || '')).catch((e) => status(e.message)))));
     }
-    out.push(act('open', `Open · ${i.name}`, () => open(i)));
+    out.push(act('edit', `${t === 2 ? 'Open' : 'Edit'} · ${i.name}`, () => openEdit(i).catch((e) => status(e.message))));
     if (fillable(i)) {
       const f = h('button', { className: 'fill', title: `Fill · ${i.name}` }, 'Fill');
       f.addEventListener('click', (e) => (e.stopPropagation(), fill(i)));
@@ -1177,163 +1171,10 @@ function generatorView({ type, use, back = vaultView } = {}) {
   draw();
 }
 
-// Bitwarden's linked custom fields point at one of the item's own fields (LinkedIdType).
-const LINKED = { 100: 'Username', 101: 'Password', 300: 'Cardholder name', 301: 'Expiry month', 302: 'Expiry year', 303: 'Security code',
-  304: 'Brand', 305: 'Number', 400: 'Title', 401: 'Middle name', 402: 'Address', 403: 'Address line 2', 404: 'Address line 3', 405: 'City',
-  406: 'State / province', 407: 'Postal code', 408: 'Country', 409: 'Company', 410: 'Email', 411: 'Phone', 412: 'Social security number',
-  413: 'Username', 414: 'Passport number', 415: 'Licence number', 416: 'First name', 417: 'Last name', 418: 'Full name' };
-const linkedTo = (id) => `Linked to ${LINKED[id] || 'another field'}`;
-// Choices for a new link, by item type: the login's username and password, or the card's or identity's fields.
-const linkChoices = (t) => Object.keys(LINKED).map(Number).filter((id) => Math.floor(id / 100) === t && id !== 418);
-
-// The edit forms' custom fields (text, hidden, checkbox, linked): per field a name, its kind and a remove icon on one
-// row, the value under it. orgHidden: hidden values an organization keeps out of view stay as stored. t: item type.
-function fieldsEditor(list, orgHidden, t) {
-  const rows = h('div', { className: 'urls' });
-  const KIND = [[0, 'Text'], [1, 'Hidden'], [2, 'Checkbox'], ...(linkChoices(t).length ? [[3, 'Linked']] : [])];
-  const add = (f = { type: 0, name: '', value: '' }, n = null) => {
-    const kept = n != null && f.type === 1 && orgHidden;
-    const name = h('input', { value: f.name || '', placeholder: 'Field name', ariaLabel: 'Field name', autocomplete: 'off' });
-    const kindSel = h('select', { ariaLabel: 'Field kind', title: 'Kind of field', disabled: kept },
-      KIND.map(([v, l]) => h('option', { value: v, selected: v === (f.type ?? 0) }, l)));
-    const valueRow = h('div', { className: 'inline' });
-    let read = () => ({});
-    const draw = (type, value) => {
-      if (type === 3) {
-        const target = h('select', { ariaLabel: 'Linked to', title: 'The field this one fills with' },
-          linkChoices(t).map((id) => h('option', { value: id, selected: id === f.linkedId }, LINKED[id])));
-        if (f.linkedId != null && !linkChoices(t).includes(f.linkedId)) target.append(h('option', { value: f.linkedId, selected: true }, linkedTo(f.linkedId)));
-        valueRow.replaceChildren(h('span', { className: 'muted' }, 'Linked to'), target);
-        read = () => ({ linkedId: Number(target.value) });
-      } else if (type === 2) {
-        const box = h('input', { type: 'checkbox', checked: value === 'true' || value === true });
-        valueRow.replaceChildren(h('label', { className: 'check' }, box, 'On'));
-        read = () => ({ value: String(box.checked) });
-      } else {
-        const input = h('input', { type: type === 1 ? 'password' : 'text', value: kept ? '' : value || '', ariaLabel: 'Field value', autocomplete: 'off',
-          placeholder: kept ? 'Hidden by your organization' : 'Value', disabled: kept });
-        valueRow.replaceChildren(input, type === 1 && !kept && h('button', { type: 'button', onclick: () => (input.type = input.type === 'password' ? 'text' : 'password') }, 'Show'));
-        read = () => (kept ? { keep: n } : { value: input.value });
-      }
-    };
-    draw(f.type ?? 0, f.value);
-    kindSel.onchange = () => {
-      const now = read(), next = Number(kindSel.value);
-      draw(next, next === 2 ? (now.value === 'true' || (now.value && now.value !== 'false') ? 'true' : 'false') : now.value === 'false' && f.type === 2 ? '' : now.value);
-    };
-    const entry = h('div', { className: 'cfield' },
-      h('div', { className: 'inline' }, name, kindSel, h('button', { type: 'button', className: 'quiet', title: 'Remove this field', onclick: () => entry.remove() }, icon('x'))),
-      valueRow);
-    entry.read = () => ({ type: Number(kindSel.value), name: name.value, ...read() });
-    rows.append(entry);
-    return name;
-  };
-  (list || []).forEach((f, n) => add(f, n));
-  const el = h('div', { className: 'field' }, h('span', {}, 'Custom fields'), rows,
-    h('button', { type: 'button', className: 'link', onclick: () => add().focus() }, 'Add field'));
-  // a new entry left empty is dropped
-  const read = () => [...rows.children].map((r) => r.read()).filter((f) => f.type === 3 || f.keep != null || f.name.trim() || (f.type !== 2 && f.value));
-  return { el, read };
-}
-
-// Ward: an item's details. Every value is on screen without the edit form: secrets stay masked until the eye (or a
-// click on the dots) shows them, each value has its copy button, and Edit opens the form. opts.fill: Fill this page.
-function itemView(item, opts = {}) {
-  if (mode === 'save') return closeSave();
-  const t = typeOf(item), c = item.card || {}, d = item.identity || {}, orgHidden = item.viewPassword === false;
-  const rows = [];
-  const MASK = '••••••••••';
-  const btn = (name, label, fn) => {
-    const b = h('button', { type: 'button', title: label, ariaLabel: label }, icon(name));
-    b.addEventListener('click', () => fn(b));
-    return b;
-  };
-  // one detail row: caption, the value in full (wrapped), then its actions
-  const row = (label, value, { secret, copyValue, mono, link } = {}) => {
-    if (value == null || value === '') return;
-    const val = h('div', { className: `val${mono || secret ? ' mono' : ''}` }, secret ? MASK : value);
-    const acts = [];
-    if (secret) {
-      let shown = false;
-      const show = (b) => {
-        shown = !shown;
-        val.textContent = shown ? value : MASK;
-        b.title = b.ariaLabel = shown ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`;
-      };
-      const eye = btn('eye', `Show ${label.toLowerCase()}`, show);
-      val.addEventListener('click', () => !shown && show(eye));
-      val.classList.add('masked');
-      acts.push(eye);
-    }
-    if (link) acts.push(btn('launch', `Open ${value} in a new tab`, () => chrome.tabs.create({ url: link }).then(() => window.close(), (e) => status(e.message))));
-    acts.push(btn('copy', `Copy ${label.toLowerCase()}`, (b) => copy(b, copyValue ?? value, !!secret).catch((e) => status(e.message))));
-    rows.push(h('div', { className: 'kv' }, h('div', { className: 'info' }, h('small', {}, label), val), h('div', { className: 'actions' }, ...acts)));
-  };
-  const note = (label, text) => text && rows.push(h('div', { className: 'kv' }, h('div', { className: 'info' }, h('small', {}, label), h('div', { className: 'val' }, text))));
-  if (t === 1) {
-    row('Username', item.username);
-    if (orgHidden && item.password) note('Password', 'Hidden by your organization');
-    else row('Password', item.password, { secret: true });
-    if (item.totp) {
-      // the digits stay masked like a password; the ring button copies the current code, as in the list
-      const code = codeButton({ ...item, reprompt: false });
-      let shown = false;
-      const val = h('div', { className: 'val mono masked' }, '••• •••');
-      const tick = code._tick;
-      const paint = () => (shown ? bw.totp(item.totp).then((x) => (val.textContent = x.code.replace(/^(\d{3})(\d{3})$/, '$1 $2')), () => {}) : (val.textContent = '••• •••'));
-      code._tick = () => (tick(), shown && paint());
-      const eye = btn('eye', 'Show one-time code', (b) => ((shown = !shown), paint(), (b.title = b.ariaLabel = `${shown ? 'Hide' : 'Show'} one-time code`)));
-      val.addEventListener('click', () => !shown && eye.click());
-      rows.push(h('div', { className: 'kv' }, h('div', { className: 'info' }, h('small', {}, 'One-time code'), val), h('div', { className: 'actions' }, eye, code)));
-    }
-    item.uris.forEach((u, n) => {
-      const href = /^https?:\/\//i.test(u) ? u : /^[\w.-]+\.[a-z]{2,}(:\d+)?(\/|$)/i.test(u) ? `https://${u}` : null;
-      const m = item.m?.[n];
-      row(m != null ? `Website · ${bw.MATCH_TYPES[m].toLowerCase()}` : 'Website', u, { link: href });
-    });
-    for (const p of item.passkeys || []) note('Passkey', [p.userName || p.userDisplayName, p.rpId].filter(Boolean).join(' · ') || 'Saved');
-  } else if (t === 3) {
-    row('Cardholder name', c.cardholderName);
-    row('Number', c.number && c.number.replace(/(\d{4})(?=\d)/g, '$1 '), { secret: true, copyValue: c.number });
-    row('Brand', c.brand);
-    row('Expiry', c.expMonth || c.expYear ? `${String(c.expMonth || '--').padStart(2, '0')} / ${c.expYear || '----'}` : '');
-    row('Security code', c.code, { secret: true });
-  } else if (t === 4) {
-    row('Name', [d.title, d.firstName, d.middleName, d.lastName].filter(Boolean).join(' '));
-    row('Company', d.company);
-    row('Email', d.email);
-    row('Phone', d.phone);
-    row('Address', [d.address1, d.address2, d.address3, [d.city, d.state, d.postalCode].filter(Boolean).join(' '), d.country].filter(Boolean).join('\n'));
-    row('Username', d.username);
-    row('Social security number', d.ssn, { secret: true });
-    row('Passport number', d.passportNumber, { secret: true });
-    row('Licence number', d.licenseNumber);
-  }
-  for (const f of item.fields || []) {
-    const label = f.name || '(no name)';
-    if (f.type === 3) note(label, linkedTo(f.linkedId));
-    else if (f.type === 2) note(label, f.value === 'true' ? 'On' : 'Off');
-    else if (f.type === 1 && orgHidden) note(label, 'Hidden by your organization');
-    else row(label, f.value, { secret: f.type === 1 });
-  }
-  if (item.notes) row(t === 2 ? 'Note' : 'Notes', item.notes);
-  const readOnly = item.raw?.edit === false;
-  const self = (fresh) => (fresh ? loadItem(item).then((f) => itemView(f, opts), () => vaultView()) : itemView(item, opts));
-  const fillBtn = opts.fill && h('button', { className: 'primary', onclick: opts.fill }, 'Fill');
-  const editBtn = !readOnly && h('button', { className: opts.fill ? '' : 'primary', onclick: () => editView(item, self) }, 'Edit');
-  render(title(item.name || '(no name)'),
-    (accounts.length > 1 || readOnly) && h('p', { className: 'muted' }, accounts.length > 1 && vaultTag(item.a), readOnly && (accounts.length > 1 ? ' · read-only' : 'Read-only')),
-    rows.length ? h('div', { className: 'details' }, ...rows) : h('p', { className: 'empty' }, 'Nothing saved in this item yet.'),
-    h('div', { className: 'inline' }, fillBtn, editBtn, h('button', { onclick: vaultView }, 'Back')),
-    h('p', { id: 'status', className: 'err' }));
-  (fillBtn || editBtn || app.querySelector('button'))?.focus();
-}
-
-// back: where Cancel goes, and (with true) where a save goes; the item's details when the form was opened from there.
-function editView(item, back = vaultView) {
+function editView(item) {
   if (mode === 'save') return closeSave();
   const t = item ? typeOf(item) : kind || 1;
-  if (t !== 1) return otherEditView(item, t, null, back);
+  if (t !== 1) return otherEditView(item, t);
   const name = h('input', { value: item ? item.name : host || '', required: true });
   const user = h('input', { value: item?.username || '' });
   const hidden = item?.viewPassword === false; // hidden by an organization policy: left empty, the saved one is kept
@@ -1341,7 +1182,6 @@ function editView(item, back = vaultView) {
   const totp = h('input', { value: item?.totp || '', placeholder: 'Secret or otpauth:// URI' });
   const uris = uriEditor(item ? item.uris.map((u, n) => [u, item.m?.[n] ?? null]) : host ? [[new URL(tab.url).origin, null]] : []);
   const notes = h('textarea', { rows: 3, value: item?.notes || '' });
-  const custom = fieldsEditor(item?.fields, hidden, 1);
   const target = !item && unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
   const readOnly = item?.raw.edit === false;
   const btn = h('button', { className: 'primary', disabled: readOnly }, readOnly ? 'Read-only' : 'Save');
@@ -1360,9 +1200,9 @@ function editView(item, back = vaultView) {
         const a = acct(item?.a || (target ? target.value : unlocked()[0].id));
         if (!await saveItem(a, item, {
           name: name.value.trim(), username: user.value, password: hidden && !pass.value ? item.password : pass.value, totp: totp.value.trim(), notes: notes.value,
-          ...uris.read(), fields: custom.read(),
+          ...uris.read(),
         })) throw new Error('Vault locked or removed before the save finished');
-        back(true);
+        vaultView();
       });
     },
   },
@@ -1377,8 +1217,8 @@ function editView(item, back = vaultView) {
       h('button', { type: 'button', className: 'quiet', title: 'Generator options', onclick: () => generatorView({
         type: gen.normalize(st.generator).type === 'passphrase' ? 'passphrase' : 'password', back: show,
         use: (v) => ((pass.value = v), (pass.type = 'text'), show()) }) }, icon('dice')))),
-    field('TOTP', totp), uris.el, custom.el, field('Notes', notes),
-    h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: () => back() }, 'Cancel'), item && !readOnly && del), err);
+    field('TOTP', totp), uris.el, field('Notes', notes),
+    h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
   // show() also returns here from the generator with the form as it was
   const heading = title(item ? 'Edit login' : 'Add login'), tag = item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a));
   function show() { render(heading, tag, form); }
@@ -1387,7 +1227,7 @@ function editView(item, back = vaultView) {
 }
 
 // Ward: add/edit a secure note (2), card (3) or identity (4). item: the full decrypted item (openEdit) or null.
-function otherEditView(item, t, prefill, back = vaultView) {
+function otherEditView(item, t, prefill) {
   const c = item?.card || prefill?.card || {}, d = item?.identity || prefill?.identity || {};
   const input = (value, props = {}) => h('input', { value: value || '', ...props });
   const secret = (value, props = {}) => {
@@ -1431,7 +1271,6 @@ function otherEditView(item, t, prefill, back = vaultView) {
       pair(field('Passport number', f.passportNumber), field('Licence number', f.licenseNumber))];
     read = () => ({ identity: Object.fromEntries(bw.IDENTITY_FIELDS.map((k) => [k, f[k].value.trim()])) });
   } else read = () => ({});
-  const custom = fieldsEditor(item?.fields, item?.viewPassword === false, t);
   const target = !item && unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
   const readOnly = item?.raw?.edit === false;
   const btn = h('button', { className: 'primary', disabled: readOnly }, readOnly ? 'Read-only' : 'Save');
@@ -1451,14 +1290,14 @@ function otherEditView(item, t, prefill, back = vaultView) {
         const nm = name.value.trim() || fallback;
         if (!nm) throw new Error('Give it a name');
         const a = acct(item?.a || (target ? target.value : unlocked()[0].id));
-        if (!await saveItem(a, item, { type: t, name: nm, notes: notes.value, ...extra, fields: custom.read() })) throw new Error('Vault locked or removed before the save finished');
+        if (!await saveItem(a, item, { type: t, name: nm, notes: notes.value, ...extra })) throw new Error('Vault locked or removed before the save finished');
         kind = t;
-        back(true);
+        vaultView();
       });
     },
   },
-    target && field('Vault', target), field('Name', name), ...fields, custom.el, field(t === 2 ? 'Note' : 'Notes', notes),
-    h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: () => back() }, 'Cancel'), item && !readOnly && del), err);
+    target && field('Vault', target), field('Name', name), ...fields, field(t === 2 ? 'Note' : 'Notes', notes),
+    h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
   const noun = { 2: 'secure note', 3: 'card', 4: 'identity' }[t];
   render(title(`${item ? 'Edit' : 'Add'} ${noun}`), item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a)), form);
   (t === 2 && item ? notes : name).focus();

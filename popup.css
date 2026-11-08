@@ -14,13 +14,9 @@ form { display: grid; gap: 10px; }
 label, .field { display: grid; gap: 4px; color: var(--muted); font-size: 11.5px; }
 .urls { display: grid; gap: 6px; } /* a login's URLs: input, match detection, remove */
 .urls .inline + .inline { margin-top: 0; }
-.urls .inline > input { flex: 1; min-width: 0; }
+.urls .inline input { flex: 1; min-width: 0; }
 .urls .inline select { max-width: none; flex: none; }
 .field > .link { justify-self: start; }
-.cfield { display: grid; gap: 4px; } /* a custom field: name, kind, remove; the value under it */
-.cfield + .cfield { padding-top: 6px; border-top: 1px solid var(--line); }
-.cfield label.check { margin: 0; }
-.cfield .muted { margin: 0; flex: none; }
 input, textarea, select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--fg); font: inherit; appearance: none; }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 select { padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
@@ -80,9 +76,9 @@ nav.kinds button:hover { color: var(--fg); }
 .item:hover .acts, .item.sel .acts, .item:focus-within .acts { visibility: visible; }
 .item:hover .acts { background: var(--panel); box-shadow: -14px 0 10px -4px var(--panel); }
 .item.sel .acts { background: var(--raised); box-shadow: -14px 0 10px -4px var(--raised); }
-.acts button, .acts .slot, .kv .actions button { width: 30px; height: 30px; padding: 0; border: 0; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.acts button:hover:not(:disabled), .kv .actions button:hover:not(:disabled) { background: var(--line); color: var(--fg); }
-.acts button.done, .kv .actions button.done { color: var(--ok); }
+.acts button, .acts .slot { width: 30px; height: 30px; padding: 0; border: 0; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.acts button:hover:not(:disabled) { background: var(--line); color: var(--fg); }
+.acts button.done { color: var(--ok); }
 .acts button.fill { width: auto; padding: 0 10px; margin-left: 4px; height: 28px; background: var(--accent); color: var(--on-accent); font-weight: 600; border-radius: 7px; }
 .acts button.fill:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); color: var(--on-accent); }
 .ring { --c: var(--accent); width: 15px; height: 15px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px var(--c);
@@ -121,12 +117,3 @@ button.link.end { margin-left: auto; }
 .switch { margin-top: 12px; } .switch .link { margin-left: 10px; }
 .genout.words { word-break: normal; overflow-wrap: anywhere; }
 .genout + .muted { font-size: 11.5px; }
-/* an item's details: caption over the value in full (wrapped, never cut off), its actions at the right */
-.details { display: flex; flex-direction: column; gap: 1px; margin: 0 -6px 4px; }
-.kv { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; }
-.kv:hover { background: var(--panel); }
-.kv small { display: block; color: var(--muted); font-size: 11.5px; }
-.kv .val { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.kv .val.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
-.kv .val.masked { cursor: pointer; }
-.kv .actions { flex: none; align-self: center; }
