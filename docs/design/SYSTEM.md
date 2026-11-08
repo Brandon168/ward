@@ -57,11 +57,15 @@ colour in a view. The only literal colours are the avatar palette and the vault 
   bar, a title that names the site ("Sign in to github.com", "Save this login for news.example?"), the choices as
   rows, one action row, and `fitWindow()` to size the window to the content. A prompt that acts for a page always
   names that page's site: that is both consistency and security.
+  They open at the top right of the browser window, under the toolbar icon (`wardWindow()` in background.js; the
+  Touch ID window from popup.js does the same).
 - In-page UI stays minimal and points to Ward's own windows for anything sensitive; it reuses the row, avatar and
   primary-button look from the popup. Its rows act on a genuine click only (`genuine()` in `inpage.js`): a login row
   fills, a passkey row signs in to the page's own site (like Fill; no window). When Ward holds the page's passkey
   autofill request, passkey rows come first (their detail line starts with "Passkey · ") and the menu ends with one
   `.link` row, "Use device or security key", the same escape hatch as the passkey window.
+  While a vault is locked and nothing can be filled, the menu has one row instead: a grey lock avatar, "Ward is
+  locked", "Unlock to fill your logins" ("Sign in to Ward" with no vault), which opens Ward.
 - Feedback goes on the control that caused it (a copied button turns `--ok`), not in toasts.
 
 ## Copy

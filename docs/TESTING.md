@@ -90,6 +90,12 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     web vault shows the same match detection. Add URL adds a row, × removes one; an invalid regular expression is
     refused on Save.
 
+19. **Locked menu and window placement (0.7.4)**: lock Ward, click a login field: the menu shows "Ward is
+    locked" (no logins, no usernames); clicking it opens Ward's popup (or a small Ward window) to unlock. With no
+    vault added it says "Sign in to Ward". Unlocked again, the field shows the logins as before. Start a passkey
+    sign-in or a save offer: Ward's window opens at the top right of the browser window, not the screen's corner;
+    with the browser window across two displays it still opens (where Chrome puts it).
+
 ### Automated two-step checks
 
 - Email: run Vaultwarden with mail going to [Mailpit](https://mailpit.axllent.org/) and pass `MAILPIT`:

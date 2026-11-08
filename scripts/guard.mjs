@@ -27,7 +27,8 @@ const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
 // 230 -> 240 KB (2026-11-07): two-step login, the generator and the speed work (chunked list, caches, fast paths).
 // 240 -> 245 KB (2026-11-06): passkey autofill in the in-page menu (0.7.0).
 // 245 -> 246 KB (2026-11-08): the in-page menu hides presses from the page so popovers stay open (0.7.3).
-const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 246_000 };
+// 246 -> 249 KB (2026-11-08): the locked row in the in-page menu, Ward's windows placed under the toolbar icon (0.7.4).
+const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 249_000 };
 
 const read = (f) => readFileSync(join(root, f), 'utf8');
 const sha256 = (f) => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');

@@ -29,6 +29,8 @@
   reloaded or updated; the old in-page copy stays quiet (0.7.2)
 - Fix: picking a login in Ward's in-page menu fills it on sites whose login popover closes on a click outside it
   (southwest.com); the page no longer sees presses on the menu (0.7.3)
+- Locked: a click in a login field shows "Ward is locked" in the in-page menu instead of nothing; it opens Ward to
+  unlock. Ward's windows (passkey, save offers, Touch ID, security key) open at the browser window's top right (0.7.4)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

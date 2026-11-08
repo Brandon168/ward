@@ -4,7 +4,8 @@
 // autofill on its username field. Checks: Ward's menu lists the passkey first, a click signs in without a window and
 // the site's key verifies the signature; the page aborting for its own button falls through to Ward's passkey window;
 // "Use device or security key" hands the request to the browser (a virtual authenticator here); a login popover that
-// closes on presses outside it (like southwest.com) still fills from the menu (/popover). Not in CI (needs
+// closes on presses outside it (like southwest.com) still fills from the menu (/popover); locked, the menu has one
+// "Ward is locked" row that opens Ward. Not in CI (needs
 // Chromium); run it after changing page.js, bridge.js, the menu in inpage.js or the passkey part of background.js:
 //   docker run -d --name ward-vw -p 127.0.0.1:8099:80 -e I_REALLY_WANT_VOLATILE_STORAGE=true -e DOMAIN=https://vault.test \
 //     -e LOGIN_RATELIMIT_MAX_BURST=100 -e LOGIN_RATELIMIT_SECONDS=1 vaultwarden/server:1.37.5
@@ -136,6 +137,18 @@ try {
   assert.deepEqual(await pop.eval(`[document.getElementById('p').value, document.activeElement.id]`), ['pw-ann', 'p'],
     'the popover kept its fields and Ward filled them');
   console.log('a popover that closes on outside presses still fills from the menu');
+
+  // 5. Locked: the menu shows one "Ward is locked" row; picking it opens Ward (the toolbar popup, or a window).
+  await p.eval(`document.querySelector('button[title="Lock all vaults"]').click()`);
+  await sleep(500);
+  await pop.goto('https://login.test/popover');
+  await sleep(500);
+  rows = await openMenu(pop);
+  assert.deepEqual(rows.map((r) => r.text), ['Ward is locked Unlock to fill your logins'], `locked menu: ${JSON.stringify(rows.map((r) => r.text))}`);
+  const before = new Set((await b.targets()).map((t) => t.targetId));
+  await pop.click(rows[0].x, rows[0].y);
+  await b.waitTarget((t) => !before.has(t.targetId) && /popup\.html$/.test(t.url), 10000);
+  console.log('locked: the menu says so and its row opens Ward');
   console.log('passkey autofill e2e ok');
 } finally {
   await b.close();

@@ -403,7 +403,7 @@ async function openSave(key, sender) {
     const opened = { ...offer, opened: true };
     await session.set({ [keyName]: opened });
     try {
-      await chrome.windows.create({ url: `popup.html#save=${key}`, type: 'popup', width: 410, height: offer.kind === 'form' ? 360 : 240 });
+      await wardWindow({ url: `popup.html#save=${key}`, type: 'popup', width: 410, height: offer.kind === 'form' ? 360 : 240 }, sender.tab.windowId);
       return { opened: true };
     } catch {
       await session.set({ [keyName]: offer });
@@ -457,7 +457,7 @@ async function twoStepKey() {
     if (!p || !(p.expires > Date.now()) || !options || typeof p.server !== 'string') return;
     const server = new URL(p.server);
     if (server.protocol !== 'https:' && !/^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(server.hostname)) return;
-    win = await chrome.windows.create({ url: `${p.server}/alive`, type: 'popup', width: 460, height: 300, focused: true });
+    win = await wardWindow({ url: `${p.server}/alive`, type: 'popup', width: 460, height: 300, focused: true });
     const tabId = win.tabs?.[0]?.id;
     for (let i = 0; ; i++) { // wait for the page; it must still be on the server (no redirect elsewhere)
       const t = await chrome.tabs.get(tabId);
@@ -493,6 +493,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
     : m?.bwliteMenu === true && sender.tab && http(sender.url) ? menu(sender, m.pk === true && senderOrigin)
     : typeof m?.wardPasskey === 'string' && m.wardPasskey.length < 300 && senderOrigin ? pickHeld(m.wardPasskey, sender)
     : requestId(m?.wardCondEnd) && senderOrigin ? heldFor(sender, m.wardCondEnd).then((r) => r && session.remove(`cpk:${sender.tab.id}`)).then(() => null)
+    : m?.wardUnlock === true && sender.tab && http(sender.url) ? openUnlock(sender)
     : typeof m?.bwliteFillKey === 'string' && m.bwliteFillKey.length < 200 && sender.tab && http(sender.url) ? fillFromMenu(m.bwliteFillKey, sender)
     : m?.bwliteSubmit && sender.tab ? submitted(sender.tab.id, sender.url, m.bwliteSubmit).then(() => null)
     : m?.wardClipboardClear === true && sender.id === chrome.runtime.id && !sender.tab ? scheduleClipboardClear().then(() => null)
@@ -526,7 +527,33 @@ async function menu(sender, pk) {
   // nothing to show (locked meanwhile, setting off): the browser takes the request; its list shows on the next click
   if (held && (!v.passkeyMenu || !out.length)) release(held, sender.tab.id).catch(() => {});
   else if (held) out.push({ k: 'device', device: true });
+  // Ward: nothing to fill because a vault is locked (or none is set up): one row that opens Ward instead
+  if (!out.length && v.open < v.accounts.length) out.push({ k: 'locked', locked: true });
+  if (!v.accounts.length) out.push({ k: 'locked', locked: true, signin: true });
   return out;
+}
+
+// Ward: the menu's locked row. The toolbar popup unlocks; where it can't open, the popup in a small window.
+async function openUnlock(sender) {
+  const v = await vault();
+  if (v.accounts.length && v.open === v.accounts.length) return null;
+  try {
+    await chrome.action.openPopup({ windowId: sender.tab.windowId });
+  } catch {
+    await wardWindow({ url: 'popup.html', type: 'popup', width: 380, height: 560, focused: true }, sender.tab.windowId);
+  }
+  return null;
+}
+
+// Ward: its windows open at the top right of the browser window, under the toolbar icon, not at the screen's corner.
+// Chrome refuses bounds that are mostly off screen (a window across two displays): then it places the window itself.
+async function wardWindow(o, windowId) {
+  let w = null;
+  try { w = await (windowId ? chrome.windows.get(windowId) : chrome.windows.getLastFocused()); } catch {}
+  if (w && Number.isFinite(w.left) && w.state !== 'minimized') {
+    try { return await chrome.windows.create({ ...o, left: Math.max(w.left, w.left + w.width - o.width - 16), top: w.top + 72 }); } catch {}
+  }
+  return chrome.windows.create(o);
 }
 
 async function fillFromMenu(k, sender) {
@@ -580,7 +607,7 @@ async function passkey({ bwliteReq, kind, options: o }, { origin, tab, documentI
   if (busy) return { bwliteRes: bwliteReq, error: { name: 'NotAllowedError', message: 'A passkey request is already pending' } };
   if (version !== stateVersion) return session.remove(`pk:${key}`).then(() => fallback);
   try {
-    await chrome.windows.create({ url: `popup.html#pk=${key}`, type: 'popup', width: 410, height: 320 });
+    await wardWindow({ url: `popup.html#pk=${key}`, type: 'popup', width: 410, height: 320 }, tab.windowId);
   } catch (e) {
     await session.remove(`pk:${key}`);
     throw e;

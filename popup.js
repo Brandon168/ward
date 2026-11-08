@@ -1322,7 +1322,11 @@ function closeSave() {
 // --- Touch ID unlock (Ward, experimental) -------------------------------------------------------------------
 // WebAuthn runs in its own small window: the toolbar popup closes as soon as the system prompt takes focus.
 async function openTouch(kind) {
-  await chrome.windows.create({ url: `popup.html#touch=${kind}`, type: 'popup', width: 420, height: 330, focused: true });
+  // top right of the browser window, under the toolbar icon (as background.js near()), not the screen's corner
+  const w = await chrome.windows.getCurrent().catch(() => null);
+  const o = { url: `popup.html#touch=${kind}`, type: 'popup', width: 420, height: 330, focused: true };
+  const at = w && Number.isFinite(w.left) && w.state !== 'minimized' ? { left: Math.max(w.left, w.left + w.width - 436), top: w.top + 72 } : {};
+  await chrome.windows.create({ ...o, ...at }).catch(() => chrome.windows.create(o)); // mostly off screen: Chrome places it
   window.close();
 }
 

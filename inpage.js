@@ -126,19 +126,33 @@ if (!globalThis.bwliteFill) {
     const box = root.appendChild(el('div'));
     box.className = 'box';
     box.appendChild(el('div', 'Ward')).className = 'head';
-    for (const l of logins.filter((x) => !x.device)) {
+    const row = (avatar, colour, name, sub) => {
       const b = box.appendChild(document.createElement('button'));
-      const av = el('span', (l.name || '?').trim()[0]?.toUpperCase() || '?');
+      const av = el('span', avatar);
       av.className = 'av';
-      av.style.background = hue(l.name);
+      av.style.background = colour;
       const info = el('span');
       info.className = 'info';
-      const sub = [l.pk && 'Passkey', l.username || '(no username)', l.vault].filter(Boolean).join(' · ');
-      info.append(el('b', l.name || '(no name)'), el('small', sub));
-      info.title = `${l.name || '(no name)'}\n${sub}`;
+      info.append(el('b', name), el('small', sub));
+      info.title = `${name}\n${sub}`;
       b.append(av, info);
+      return b;
+    };
+    // Ward: locked (or no vault): one row that opens Ward to unlock, so the field doesn't just stay silent
+    const locked = logins.find((x) => x.locked);
+    if (locked) {
+      const b = row('', '#6b7280', locked.signin ? 'Sign in to Ward' : 'Ward is locked',
+        locked.signin ? 'Sign in to fill your logins' : 'Unlock to fill your logins');
+      const svg = (n) => document.createElementNS('http://www.w3.org/2000/svg', n), icon = b.firstChild.appendChild(svg('svg'));
+      for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: 16, height: 16, fill: 'none', stroke: 'currentColor',
+        'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) icon.setAttribute(k, v);
+      icon.appendChild(svg('path')).setAttribute('d', 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3'); // popup.js ICONS.lock
+      pick(b, { wardUnlock: true });
+    }
+    for (const l of logins.filter((x) => !x.device && !x.locked)) {
+      const sub = [l.pk && 'Passkey', l.username || '(no username)', l.vault].filter(Boolean).join(' · ');
       // a passkey row answers the page's passkey autofill request (background.js signs); the others fill
-      pick(b, l.pk ? { wardPasskey: l.k } : null, l.k);
+      pick(row((l.name || '?').trim()[0]?.toUpperCase() || '?', hue(l.name), l.name || '(no name)', sub), l.pk ? { wardPasskey: l.k } : null, l.k);
     }
     if (logins.some((l) => l.device)) { // Ward holds the page's passkey autofill request
       const b = box.appendChild(el('button', 'Use device or security key'));

@@ -69,7 +69,8 @@ for (const [file, name, view, hash] of VIEWS) {
 // save bar), with a fake chrome.runtime. Click the username or password field to open the menu.
 // preview/ward-inpage-passkey.html: the same page asking for passkey autofill, which Ward holds (bridge.js would set
 // wardHeld), so the menu lists the site's passkey first and ends with "Use device or security key".
-const inpagePage = (passkey) => `<!doctype html>
+// preview/ward-inpage-locked.html: the same page while Ward is locked: one "Ward is locked" row that opens Ward.
+const inpagePage = (passkey, locked) => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -91,8 +92,10 @@ const inpagePage = (passkey) => `<!doctype html>
   const listeners = [];${passkey ? `
   window.wardHeld = 'preview';
   logins.splice(0, 1, { k: 'v:1:0', pk: true, name: 'Example Bank', username: 'ann.lee' }); // its login isn't listed twice
-  logins.push({ k: 'device', device: true });` : ''}
+  logins.push({ k: 'device', device: true });` : ''}${locked ? `
+  logins.splice(0, logins.length, { k: 'locked', locked: true }); // Ward is locked: one row that opens Ward` : ''}
   window.chrome = { runtime: {
+    id: 'preview', // inpage.js asks only while the extension is alive (chrome.runtime.id)
     sendMessage: async (m) => m.bwliteMenu ? logins.map(({ password, ...l }) => l)
       : m.bwliteFillKey ? logins.find((l) => l.k === m.bwliteFillKey) : null,
     onMessage: { addListener: (f) => listeners.push(f) },
@@ -111,6 +114,7 @@ const inpagePage = (passkey) => `<!doctype html>
 const page = inpagePage(false);
 writeFileSync(join(root, 'preview', 'ward-inpage.html'), page);
 writeFileSync(join(root, 'preview', 'ward-inpage-passkey.html'), inpagePage(true));
+writeFileSync(join(root, 'preview', 'ward-inpage-locked.html'), inpagePage(false, true));
 
 // preview/ward-twostep-key.html: the small window Ward opens on the vault server for a security key (twostep.js runs
 // there with the browser's own prompt on top). Here the prompt never answers.
@@ -127,3 +131,4 @@ writeFileSync(join(root, 'preview', 'ward-twostep-key.html'), keyPage);
 console.log('wrote preview/ward-twostep-key.html');
 console.log(`wrote preview/ward-inpage.html (${Math.round(page.length / 1024)} KB)`);
 console.log('wrote preview/ward-inpage-passkey.html');
+console.log('wrote preview/ward-inpage-locked.html');
