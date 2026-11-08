@@ -42,25 +42,37 @@ async function build() {
     }
     try {
       let parsed;
-      if (!list && a.persistKey) { // Never lock, browser restarted: open the encrypted list as the popup would
+      // No list yet: open the encrypted cache as the popup would, with this session's key (unlocked, but the popup that
+      // writes the list hasn't: Touch ID unlocks in its own window) or, after a browser restart, Never lock's key.
+      if (!list && (validSessionKey(s[`${a.id}:key`]) || a.persistKey)) {
         list = await withStateLock(async () => {
           // A popup can lock or remove this account while decrypt is suspended.
-          // Re-read the account under the same lock and publish only while its
-          // current persisted key still authorizes the restore.
+          // Re-read the account and the key under the same lock and publish only while that key still authorizes it.
           const latest = (await local.get('accounts')).accounts?.find((x) => x?.id === a.id);
-          if (!latest?.persistKey || latest.persistKey !== a.persistKey || stateVersion !== version) return null;
+          if (!latest || stateVersion !== version) return null;
           const current = await session.get([`${a.id}:key`, `${a.id}:list`]);
           if (validSessionKey(current[`${a.id}:key`]) && current[`${a.id}:list`]) return current[`${a.id}:list`];
+          const useSession = validSessionKey(current[`${a.id}:key`]);
+          if (!useSession && (!latest.persistKey || latest.persistKey !== a.persistKey)) return null;
+          const keyB64 = useSession ? current[`${a.id}:key`] : latest.persistKey;
           const { [`${a.id}:index4`]: index } = await local.get(`${a.id}:index4`);
           if (!index) return null;
-          const persistKey = bw.unb64(latest.persistKey);
-          if (persistKey.length !== 64) throw new Error('bad persisted vault key');
-          const text = td.decode(await bw.decrypt(index, persistKey));
-          parsed = JSON.parse(text);
-          if (!Array.isArray(parsed)) throw new Error('cached list is not an array');
+          const key = bw.unb64(keyB64);
+          if (key.length !== 64) throw new Error('bad vault key');
+          let text;
+          try {
+            text = td.decode(await bw.decrypt(index, key));
+            parsed = JSON.parse(text);
+            if (!Array.isArray(parsed)) throw new Error('cached list is not an array');
+          } catch (e) {
+            if (useSession) return (parsed = undefined), null; // the cache doesn't fit this key: the popup syncs; keep the key
+            throw e;
+          }
           const currentLatest = (await local.get('accounts')).accounts?.find((x) => x?.id === a.id);
-          if (currentLatest?.persistKey !== latest.persistKey || stateVersion !== version) return null;
-          await session.set({ [`${a.id}:list`]: text, [`${a.id}:key`]: latest.persistKey });
+          const keyNow = (await session.get(`${a.id}:key`))[`${a.id}:key`];
+          if (!currentLatest || stateVersion !== version
+            || (useSession ? keyNow !== keyB64 : currentLatest.persistKey !== latest.persistKey)) return null;
+          await session.set({ [`${a.id}:list`]: text, [`${a.id}:key`]: keyB64 });
           return text;
         });
       }

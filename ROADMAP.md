@@ -31,6 +31,8 @@
   (southwest.com); the page no longer sees presses on the menu (0.7.3)
 - Locked: a click in a login field shows "Ward is locked" in the in-page menu instead of nothing; it opens Ward to
   unlock. Ward's windows (passkey, save offers, Touch ID, security key) open at the browser window's top right (0.7.4)
+- Fix: after unlocking with Touch ID, the in-page menu still said "Ward is locked" until the popup had loaded the
+  vault; the service worker now opens the vault's cache itself (0.7.5)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

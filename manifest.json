@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ward",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Fast, lean Vaultwarden client: search, autofill, TOTP, passkeys, save prompts.",
   "homepage_url": "https://github.com/Brandon168/ward",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqdMkwi09K7a87rh810bIA8h//XRe4Q6suf5VOHtDUfnfF8Y/cr5LJXR0KZkZy/Rc78caP9PxNgisEoUHjjfBojvUby3DYgAz1NDEiKzHPrsECijZzd2hTQQMe/bIjJV59xVHr1YqB0qDy1FFMhkJOOlgb7Fp6F8XBg/HVCxZL6jTErGwvO2MwRnT7cYTVBILhGMH0YX1GE0E7revnfbHZa/ONaimE0wVf8+2oKg/HToNMt+qS28WjTZ+SJYc+IEN0dXuE/HGrUHonjHuIV4/DLph6PnzcJXbeveDwuadbEG9PTMBin+LZ3L2Q/Xam7l8+5mcgb6hVID/XHq6zWVYLQIDAQAB",

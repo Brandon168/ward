@@ -469,6 +469,24 @@ await localStore.set({ accounts: [accountA, accountB, { id: 'c', label: 'C' }] }
 await sessionStore.set({ 'c:list': JSON.stringify([{ id: 'c1', name: 'C', username: 'leak', password: 'p', uris: ['https://two.example'] }]) });
 const noStaleList = await sendRuntime({ bwliteMenu: true }, { tab: { id: 1 }, url: 'https://two.example/login' });
 assert.ok(!noStaleList.some((i) => i.username === 'leak'), 'a list without its session key is never exposed');
+// Unlocked (a session key) but the list not written yet (Touch ID unlocks in its own window; the popup writes the list):
+// the service worker opens the encrypted cache with that key. A cache the key doesn't open keeps the key (the popup syncs).
+{
+  const dList = JSON.stringify([{ id: 'd1', name: 'D', username: 'touch', password: 'p', uris: ['https://two.example'] }]);
+  await localStore.set({ accounts: [accountA, accountB, { id: 'c', label: 'C' }, { id: 'd', label: 'D' }],
+    'd:index4': await bw.encrypt(dList, new Uint8Array(64)) });
+  await sessionStore.set({ 'd:key': testSessionKey });
+  const touchMenu = await sendRuntime({ bwliteMenu: true }, { tab: { id: 1 }, url: 'https://two.example/login' });
+  assert.ok(touchMenu.some((i) => i.username === 'touch'), 'a session key without its list opens the cached list');
+  assert.equal((await sessionStore.get('d:list'))['d:list'], dList, 'and publishes it for the popup');
+  await sessionStore.remove('d:list');
+  await localStore.set({ 'd:index4': await bw.encrypt(dList, new Uint8Array(64).fill(1)) });
+  await sendRuntime({ bwliteMenu: true }, { tab: { id: 1 }, url: 'https://two.example/login' });
+  assert.equal((await sessionStore.get('d:key'))['d:key'], testSessionKey, 'a cache the session key cannot open leaves the key alone');
+  await localStore.remove('d:index4');
+  await sessionStore.remove('d:key');
+  await localStore.set({ accounts: [accountA, accountB, { id: 'c', label: 'C' }] });
+}
 await localStore.set({
   'a:eq': [['one.example', 'shared.example']], 'b:eq': [['two.example', 'other.example']],
 });

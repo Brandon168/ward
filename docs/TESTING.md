@@ -95,6 +95,8 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     vault added it says "Sign in to Ward". Unlocked again, the field shows the logins as before. Start a passkey
     sign-in or a save offer: Ward's window opens at the top right of the browser window, not the screen's corner;
     with the browser window across two displays it still opens (where Chrome puts it).
+    Unlock with Touch ID from there (0.7.5): close the popup at once and click the field: the logins show, not "Ward
+    is locked".
 
 ### Automated two-step checks
 

@@ -147,8 +147,24 @@ try {
   assert.deepEqual(rows.map((r) => r.text), ['Ward is locked Unlock to fill your logins'], `locked menu: ${JSON.stringify(rows.map((r) => r.text))}`);
   const before = new Set((await b.targets()).map((t) => t.targetId));
   await pop.click(rows[0].x, rows[0].y);
-  await b.waitTarget((t) => !before.has(t.targetId) && /popup\.html$/.test(t.url), 10000);
+  const unlockWin = await b.attach((await b.waitTarget((t) => !before.has(t.targetId) && /popup\.html$/.test(t.url), 10000)).targetId);
   console.log('locked: the menu says so and its row opens Ward');
+
+  // 6. Unlocked in the window that row opened, a click on the same (still focused) field lists the logins: no reload.
+  await unlockWin.send('Runtime.enable');
+  await unlockWin.waitFor(`!!document.querySelector('input[type=password]')`);
+  await unlockWin.clickSel('input[type=password]');
+  await unlockWin.type(PASSWORD);
+  await unlockWin.eval(`[...document.querySelectorAll('button')].find((x) => x.textContent === 'Unlock').click()`);
+  await unlockWin.waitFor(`!!document.getElementById('search')`, 30000);
+  await pop.send('Page.bringToFront');
+  await sleep(300);
+  await pop.clickSel('#u');
+  await pop.waitFor(`!!document.querySelector('bwlite-menu')`, 10000);
+  await sleep(600);
+  rows = await menuButtons(pop);
+  assert.ok(rows.some((r) => r.text.endsWith('ann')), `unlocked menu without a reload: ${JSON.stringify(rows.map((r) => r.text))}`);
+  console.log('unlocked: the menu lists logins again without a reload');
   console.log('passkey autofill e2e ok');
 } finally {
   await b.close();
