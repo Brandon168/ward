@@ -320,12 +320,15 @@ export async function saveCipher(s, userKey, item, v) {
   c.name = await e(v.name);
   c.notes = await e(v.notes);
   Object.assign(c.login, { username: await e(v.username), password: await e(v.password), totp: await e(v.totp) });
+  if (v.match != null && (!Array.isArray(v.match) || v.match.length !== v.uris.length || !v.match.every(validMatch)))
+    throw new Error('Login match types are invalid');
+  v.uris.forEach((u, n) => { if (v.match?.[n] === 4) try { new RegExp(u); } catch { throw new Error(`Not a valid regular expression: ${u}`); } });
   c.login.uris = await Promise.all(v.uris.map(async (u, n) => {
-    const i = item?.uris.indexOf(u) ?? -1; // an edited URL keeps the match type of the one in its place
+    const i = item?.uris.indexOf(u) ?? -1; // without v.match, an edited URL keeps the match type of the one in its place
     return {
       uri: await encrypt(u, key),
       uriChecksum: await encrypt(b64(await sha256(u)), key), // official clients drop a URI whose checksum doesn't match
-      match: item?.raw.login?.uris?.[i >= 0 ? i : n]?.match ?? null,
+      match: v.match ? v.match[n] : item?.raw.login?.uris?.[i >= 0 ? i : n]?.match ?? null,
     };
   }));
   // one passkey per login, as in the official clients: saving one replaces the old
@@ -473,8 +476,15 @@ export function equivalents(groups) {
   return out;
 }
 
-// Per saved URI, its match type as in Bitwarden: null/0 base domain (or an equivalent one), 1 host (with port),
-// 2 starts with, 3 exact, 4 regular expression, 5 never.
+// Per saved URI, its match type as in Bitwarden: 0 base domain (or an equivalent one), 1 host (with port),
+// 2 starts with, 3 exact, 4 regular expression, 5 never; null uses the default (Settings > Matching; base domain
+// unless changed). As in Bitwarden, the default lives in this browser, not in the vault.
+export const MATCH_TYPES = ['Base domain', 'Host', 'Starts with', 'Exact', 'Regular expression', 'Never'];
+export const DEFAULT_MATCHES = [0, 1, 2, 3]; // choices for the default: regex needs a pattern, never would hide everything
+const validMatch = (m) => m === null || (Number.isInteger(m) && m >= 0 && m < MATCH_TYPES.length);
+let defaultMatch = 0;
+export const setDefaultMatch = (m) => (defaultMatch = DEFAULT_MATCHES.includes(m) ? m : 0);
+export const getDefaultMatch = () => defaultMatch;
 // Ward: a plain-http page only matches URIs saved with an explicit http:// scheme, or schemeless URIs for local
 // hosts (IP literals, localhost, .local/.lan/.home.arpa/.internal). Otherwise an on-path attacker could downgrade
 // or inject http://anything.bank.com and have the bank's https login offered and filled there.
@@ -503,7 +513,7 @@ function matchesPage(item, { url, page, site, plainHttp }, equiv) {
   return item.uris.some((u, n) => {
     try {
       if (plainHttp && !httpAllowed(u)) return false;
-      switch (item.m?.[n] ?? 0) {
+      switch (item.m?.[n] ?? defaultMatch) {
         case 0: { const d = known ? known[n] : domainOf(u); return !!d && (d === site || !!equiv?.get(site)?.has(d)); }
         case 1: return toURL(u).host === page.host;
         case 2: { const s = toURL(u); return s.origin === page.origin && (url.startsWith(u) || page.href.startsWith(s.href)); } // Ward: same origin first

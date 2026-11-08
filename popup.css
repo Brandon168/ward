@@ -11,7 +11,12 @@ main { padding: 12px; }
 h1 { font-size: 15px; font-weight: 650; margin: 0 0 12px; }
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 16px 0 6px; }
 form { display: grid; gap: 10px; }
-label { display: grid; gap: 4px; color: var(--muted); font-size: 11.5px; }
+label, .field { display: grid; gap: 4px; color: var(--muted); font-size: 11.5px; }
+.urls { display: grid; gap: 6px; } /* a login's URLs: input, match detection, remove */
+.urls .inline + .inline { margin-top: 0; }
+.urls .inline input { flex: 1; min-width: 0; }
+.urls .inline select { max-width: none; flex: none; }
+.field > .link { justify-self: start; }
 input, textarea, select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--fg); font: inherit; appearance: none; }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 select { padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);

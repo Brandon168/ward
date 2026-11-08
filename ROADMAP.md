@@ -23,6 +23,8 @@
 - Speed: search ~15x less work per keystroke, in-page menu 3x faster, popup paints ~40% sooner; docs/performance.md (0.6.1)
 - Passkey autofill: Ward answers a site's passkey autofill request from its own menu under the field (passkeys first,
   one click signs in, "Use device or security key" hands it to the browser); honours the site's abort; setting (0.7.0)
+- Match detection: a picker per URL in the login form (base domain, host, starts with, exact, regex, never) and a
+  default in Settings > Matching, e.g. Host so a.example.com's login stays off b.example.com (0.7.1)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

@@ -22,7 +22,7 @@ async function vault() {
 }
 async function build() {
   const version = stateVersion;
-  const stored = await local.get(['accounts', 'used', 'neverSave', 'offerLogins', 'offerForms', 'passkeyMenu']);
+  const stored = await local.get(['accounts', 'used', 'neverSave', 'offerLogins', 'offerForms', 'passkeyMenu', 'defaultMatch']);
   const seen = new Set();
   const accounts = Array.isArray(stored.accounts) ? stored.accounts.filter((a) => accountId(a?.id) && !seen.has(a.id) && seen.add(a.id)) : [];
   const used = stored.used && typeof stored.used === 'object' ? stored.used : {};
@@ -96,6 +96,7 @@ async function build() {
   // Ward settings: both save offers are on unless turned off in the popup's Settings
   const offerLogins = stored.offerLogins !== false, offerForms = stored.offerForms !== false;
   const passkeyMenu = stored.passkeyMenu !== false; // passkey autofill in the menu under sign-in fields
+  bw.setDefaultMatch(stored.defaultMatch); // match type for URLs without their own (Settings > Matching)
   return (state = { accounts, used, neverSave, offerLogins, offerForms, passkeyMenu, items, open, equiv, rank });
 }
 const forSite = (v, url) => bw.forSite(v.items, url, (i) => v.equiv.get(i.a), v.rank, v.used);

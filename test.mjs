@@ -111,6 +111,23 @@ assert.deepEqual(bw.forSite(grouped, 'https://shared.example/', (i) => perVaultE
   const old = { id: 'c', key: k, uris: ['https://old.example'], raw: { id: 'c', login: { uris: [{ uri: '2.x', match: 3 }] } } };
   await bw.saveCipher(s, k, old, { name: 'n', uris: ['https://new.example'] }).finally(() => (globalThis.fetch = realFetch));
   assert.equal(body.login.uris[0].match, 3);
+  // match types chosen in the edit form are saved as given; a bad one or a broken regex is refused
+  globalThis.fetch = async (_, o) => ((body = JSON.parse(o.body)), { ok: true, text: async () => '{}' });
+  await bw.saveCipher(s, k, old, { name: 'n', uris: ['https://a.example', 'https://b.example'], match: [1, null] });
+  assert.deepEqual(body.login.uris.map((u) => u.match), [1, null]);
+  await assert.rejects(bw.saveCipher(s, k, old, { name: 'n', uris: ['https://a.example'], match: [9] }), /match types/);
+  await assert.rejects(bw.saveCipher(s, k, old, { name: 'n', uris: ['(x'], match: [4] }), /regular expression/);
+  globalThis.fetch = realFetch;
+}
+{ // the default match detection (Settings > Matching) applies to URLs without their own
+  const gym = item(['https://gym.7ven.org']);
+  assert.ok(bw.matches(gym, 'https://qb.7ven.org/'), 'base domain by default');
+  assert.equal(bw.setDefaultMatch(1), 1);
+  assert.ok(!bw.matches(gym, 'https://qb.7ven.org/'), 'host default keeps a subdomain login on its subdomain');
+  assert.ok(bw.matches(gym, 'https://gym.7ven.org/login'));
+  assert.ok(bw.matches(item(['https://gym.7ven.org'], [0]), 'https://qb.7ven.org/'), 'an explicit base domain still wins');
+  assert.equal(bw.setDefaultMatch(5), 0, 'never and unknown values fall back to base domain');
+  assert.equal(bw.setDefaultMatch(undefined), 0);
 }
 
 // Two popup-like contexts must merge account patches while one is suspended;
@@ -1546,6 +1563,16 @@ await bw.saveCipher(s, r.userKey, keyed, { ...keyed, password: 'kp' });
 keyed = (await bw.decryptVault(await bw.api(s, '/sync'), r.userKey)).find((i) => i.name === 'Keyed');
 assert.equal(keyed.password, 'kp');
 console.log('per-item cipher key ok');
+
+// Match detection chosen in the form round-trips through the server; saving without it keeps it
+await bw.saveCipher(s, r.userKey, keyed, { ...keyed, uris: ['https://gym.example.org', 'https://x.example.net'], match: [1, null] });
+keyed = (await bw.decryptVault(await bw.api(s, '/sync'), r.userKey)).find((i) => i.name === 'Keyed');
+assert.deepEqual(keyed.m, [1, null]);
+assert.ok(!bw.matches(keyed, 'https://qb.example.org/') && bw.matches(keyed, 'https://y.example.net/'));
+await bw.saveCipher(s, r.userKey, keyed, { ...keyed, password: 'kp2' });
+keyed = (await bw.decryptVault(await bw.api(s, '/sync'), r.userKey)).find((i) => i.name === 'Keyed');
+assert.deepEqual(keyed.m, [1, null]);
+console.log('match detection round-trip ok');
 
 // Organization item
 const orgKey = crypto.getRandomValues(new Uint8Array(64));

@@ -84,6 +84,12 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     on your server with the browser's prompt; touch the key; the window closes and Ward opens the vault. "Or use"
     switches between the methods the account has. Cancel goes back to the login form.
 
+18. **Match detection (0.7.1)**: save logins for two subdomains of one site (a.example.com, b.example.com). On
+    a.example.com both are offered (base domain). Settings → Matching → Host: only a.example.com's login is offered
+    there. Edit b.example.com's login, set its URL to Base domain, save: it is offered on a.example.com again, and the
+    web vault shows the same match detection. Add URL adds a row, × removes one; an invalid regular expression is
+    refused on Save.
+
 ### Automated two-step checks
 
 - Email: run Vaultwarden with mail going to [Mailpit](https://mailpit.axllent.org/) and pass `MAILPIT`:

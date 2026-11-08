@@ -46,7 +46,9 @@ colour in a view. The only literal colours are the avatar palette and the vault 
 - Other ways to do the same step (two-step methods): one `p.muted.switch` line, "Or use" followed by `.link` buttons.
 - Generated values: `.genout`, a monospace panel box (`--panel`, `--line`, 10px radius) that selects as a whole. Tab
   rows that switch a view's mode reuse the vault list's chips (`nav.kinds`, `button.on`).
-- Forms: `label` wraps its input (`field()`); checkboxes are `label.check`.
+- Forms: `label` wraps its input (`field()`); checkboxes are `label.check`. A field with several controls (a login's URLs)
+  is a `div.field` (same look as a label): its caption in a `span`, one `.inline` row per entry (input, then a `select`
+  with an `ariaLabel`, then a `.quiet` remove icon), then a `.link` add button ("Add URL").
 - The brand bar `.bar .brand` ("Ward") tops the main list and every extension window.
 
 ## Patterns

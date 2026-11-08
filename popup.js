@@ -137,8 +137,9 @@ async function run(btn, err, fn) {
 async function start() {
   let s;
   [st, s, [tab]] = await Promise.all([
-    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'passkeyMenu', 'neverSave', 'clearClipboard', 'generator', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
+    local.get(['accounts', 'used', 'deviceId', 'neverLock', 'autoLock', 'touchUnlock', 'passwordAt', 'offerLogins', 'offerForms', 'passkeyMenu', 'defaultMatch', 'neverSave', 'clearClipboard', 'generator', 'server', 'email', 'kdf', 'protectedKey', 'tokens', 'persistKey']),
     session.get(null), chrome.tabs.query({ active: true, currentWindow: true })]);
+  bw.setDefaultMatch(st.defaultMatch);
   if (mode === 'pk') {
     if (!(pk = s[`pk:${modeKey}`])) return window.close();
     if (!['create', 'get'].includes(pk.kind) || typeof pk.id !== 'string' || !Number.isInteger(pk.tabId)
@@ -753,6 +754,7 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
   check: 'M5 12l5 5 9-10',
   plus: 'M12 5v14M5 12h14',
+  x: 'M6 6l12 12M18 6 6 18',
   sync: 'M20 11a8 8 0 0 0-14-5l-2 2M4 4v4h4M4 13a8 8 0 0 0 14 5l2-2M20 20v-4h-4',
   lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3',
   gear: 'M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
@@ -1029,6 +1031,12 @@ function settingsView() {
     onchange: () => local.set({ autoLock: (st.autoLock = Number(autoLock.value)) }),
   }, AUTO_LOCK_CHOICES.map((m) => h('option', { value: String(m), selected: m === autoLockMinutes(st.autoLock) }, lockLabel(m))));
   neverLock.addEventListener('change', () => (autoLock.disabled = neverLock.checked));
+  // Matching: the match detection for URLs without their own (as Bitwarden's "Default URI match detection").
+  const matchLabel = { 0: 'Base domain: any subdomain of the site', 1: 'Host: the exact subdomain and port', 2: 'Starts with the saved URL', 3: 'Exact URL' };
+  const defaultMatch = h('select', {
+    title: 'Default match detection, for URLs that have none of their own',
+    onchange: () => local.set({ defaultMatch: (st.defaultMatch = bw.setDefaultMatch(Number(defaultMatch.value))) }),
+  }, bw.DEFAULT_MATCHES.map((m) => h('option', { value: String(m), selected: m === bw.getDefaultMatch() }, matchLabel[m])));
   // Appearance: follow the system unless chosen here (theme.js applies it before first paint).
   const root = document.documentElement;
   let themeNow = 'system';
@@ -1064,8 +1072,35 @@ function settingsView() {
     h('label', { className: 'check', title: 'Keeps the vault keys on this computer so the vaults stay open after a browser restart. Anyone with access to this browser profile can then open them.' }, neverLock, 'Never lock'),
     autoLock,
     h('button', { title: 'Touch ID unlock (experimental)', onclick: touchSettingsView }, 'Touch ID…'),
+    h('h2', {}, 'Matching'), defaultMatch,
+    h('p', { className: 'muted' }, 'For URLs without their own match detection. Set one login\'s URLs in its edit form.'),
     h('h2', {}, 'Appearance'), theme,
     h('div', { className: 'inline' }, h('button', { className: 'primary', onclick: vaultView }, 'Done')));
+}
+
+// The edit form's URLs: one row per URL with its match detection (null: the default from Settings > Matching).
+function uriEditor(list) {
+  const rows = h('div', { className: 'urls' });
+  const add = (u = '', m = null) => {
+    const input = h('input', { value: u, placeholder: 'example.com', ariaLabel: 'URL' });
+    const match = h('select', { title: 'Match detection: when this URL counts as the page you are on', ariaLabel: 'Match detection' },
+      [null, ...bw.MATCH_TYPES.keys()].map((v) => h('option', { value: v ?? '', selected: v === m },
+        v === null ? `Default (${bw.MATCH_TYPES[bw.getDefaultMatch()]})` : bw.MATCH_TYPES[v])));
+    const row = h('div', { className: 'inline' }, input, match,
+      h('button', { type: 'button', className: 'quiet', title: 'Remove this URL', onclick: () => row.remove() }, icon('x')));
+    row.read = () => [input.value.trim(), match.value === '' ? null : Number(match.value)];
+    rows.append(row);
+    return input;
+  };
+  for (const [u, m] of list) add(u, m);
+  if (!list.length) add();
+  const el = h('div', { className: 'field' }, h('span', {}, 'URLs'), rows,
+    h('button', { type: 'button', className: 'link', onclick: () => add().focus() }, 'Add URL'));
+  const read = () => {
+    const got = [...rows.children].map((r) => r.read()).filter(([u]) => u);
+    return { uris: got.map(([u]) => u), match: got.map(([, m]) => m) };
+  };
+  return { el, read };
 }
 
 // The edit form's Gen: a password or passphrase with the generator's saved options.
@@ -1145,7 +1180,7 @@ function editView(item) {
   const hidden = item?.viewPassword === false; // hidden by an organization policy: left empty, the saved one is kept
   const pass = h('input', { type: 'password', value: hidden ? '' : item?.password || '', placeholder: hidden ? 'Hidden by your organization' : null });
   const totp = h('input', { value: item?.totp || '', placeholder: 'Secret or otpauth:// URI' });
-  const uris = h('textarea', { rows: 2, value: (item ? item.uris : host ? [new URL(tab.url).origin] : []).join('\n'), placeholder: 'One URL per line' });
+  const uris = uriEditor(item ? item.uris.map((u, n) => [u, item.m?.[n] ?? null]) : host ? [[new URL(tab.url).origin, null]] : []);
   const notes = h('textarea', { rows: 3, value: item?.notes || '' });
   const target = !item && unlocked().length > 1 && h('select', {}, unlocked().map((a) => h('option', { value: a.id }, a.label)));
   const readOnly = item?.raw.edit === false;
@@ -1165,7 +1200,7 @@ function editView(item) {
         const a = acct(item?.a || (target ? target.value : unlocked()[0].id));
         if (!await saveItem(a, item, {
           name: name.value.trim(), username: user.value, password: hidden && !pass.value ? item.password : pass.value, totp: totp.value.trim(), notes: notes.value,
-          uris: uris.value.split('\n').map((u) => u.trim()).filter(Boolean),
+          ...uris.read(),
         })) throw new Error('Vault locked or removed before the save finished');
         vaultView();
       });
@@ -1182,7 +1217,7 @@ function editView(item) {
       h('button', { type: 'button', className: 'quiet', title: 'Generator options', onclick: () => generatorView({
         type: gen.normalize(st.generator).type === 'passphrase' ? 'passphrase' : 'password', back: show,
         use: (v) => ((pass.value = v), (pass.type = 'text'), show()) }) }, icon('dice')))),
-    field('TOTP', totp), field('URLs', uris), field('Notes', notes),
+    field('TOTP', totp), uris.el, field('Notes', notes),
     h('div', { className: 'inline' }, btn, h('button', { type: 'button', onclick: vaultView }, 'Cancel'), item && !readOnly && del), err);
   // show() also returns here from the generator with the form as it was
   const heading = title(item ? 'Edit login' : 'Add login'), tag = item && accounts.length > 1 && h('p', { className: 'muted' }, vaultTag(item.a));
