@@ -41,6 +41,32 @@ await bw.saveCipher({ server: 'https://vault.example', tokens: { access: jwt, ex
 globalThis.fetch = oldFetch;
 assert.deepEqual(savedBody.data, { opaque: 'keep' }, 'unknown cipher fields survive an edit');
 assert.equal(savedBody.lastKnownRevisionDate, '1', 'edits keep the revision captured by the form for optimistic concurrency');
+{ // custom fields: decrypted only when an item is opened (full), saved from the edit form, kept when the form sends none
+  const dec = async (x) => (x ? new TextDecoder().decode(await bw.decrypt(x, k)) : null);
+  const raw = { id: 'cf', revisionDate: '2', type: 1, login: {}, fields: [
+    { type: 0, name: await bw.encrypt('PIN', k), value: await bw.encrypt('1234', k) },
+    { type: 1, name: await bw.encrypt('API key', k), value: await bw.encrypt('sk-secret', k) },
+    { type: 3, name: await bw.encrypt('Email', k), value: null, linkedId: 100 }] };
+  const sync = { profile: {}, ciphers: [raw] };
+  assert.equal((await bw.decryptVault(sync, k))[0].fields, undefined, 'a sync (the list) skips custom fields');
+  const full = (await bw.decryptVault(sync, k, null, true))[0];
+  assert.deepEqual(full.fields, [{ type: 0, name: 'PIN', value: '1234' }, { type: 1, name: 'API key', value: 'sk-secret' },
+    { type: 3, name: 'Email', value: '', linkedId: 100 }]);
+  const s = { server: 'https://vault.example', tokens: { access: jwt, expires: Date.now() + 60e3 } };
+  const save = async (fields) => {
+    globalThis.fetch = async (_url, options) => (savedBody = JSON.parse(options.body), { ok: true, text: async () => '{}' });
+    try { await bw.saveCipher(s, k, { ...full, raw }, { name: 'n', username: '', password: '', totp: '', notes: '', uris: [], fields }); } finally { globalThis.fetch = oldFetch; }
+    return savedBody.fields;
+  };
+  assert.equal((await save(undefined)).length, 3, 'without fields from the form the stored ones go back untouched');
+  const out = await save([{ type: 1, name: 'API key', value: 'sk-new' }, { type: 2, name: 'Admin', value: 'true' }, { type: 1, name: 'Org', keep: 1 },
+    { type: 3, name: 'Email', linkedId: 100 }]);
+  assert.deepEqual(await Promise.all(out.map(async (f) => [f.type, await dec(f.name), await dec(f.value), f.linkedId])),
+    [[1, 'API key', 'sk-new', null], [2, 'Admin', 'true', null], [1, 'Org', 'sk-secret', null], [3, 'Email', null, 100]]);
+  assert.equal(out[2].value, raw.fields[1].value, 'a value the organization hides goes back as stored');
+  assert.equal(await save([]), null, 'removing every field clears them');
+  await assert.rejects(save([{ type: 3, name: 'x' }]), /linked/i);
+}
 await assert.rejects(bw.saveCipher({ server: 'https://vault.example', tokens: { access: jwt, expires: Date.now() + 60e3 } }, k,
   { id: 'ro', raw: { edit: false }, key: k }, { name: 'x', username: '', password: '', totp: '', notes: '', uris: [] }), /read-only/i);
 await assert.rejects(bw.saveCipher({ server: 'https://vault.example', tokens: { access: jwt, expires: Date.now() + 60e3 } }, k,
@@ -1587,6 +1613,19 @@ assert.equal((await bw.decryptVault(sync, r.userKey, stale))[0].password, 'pw2')
 assert.deepEqual([vault[0].d, vault[0].dv], [vault[0].uris.map((u) => bw.domainOf(u)), bw.DOMAINS_VERSION], 'derived domains carry their version');
 assert.equal(vault[0].m, undefined, 'no match types set');
 console.log('incremental decrypt ok');
+{ // custom fields from the edit form: the server stores what the official clients would (text, hidden, checkbox, linked)
+  const now = await bw.api(s, '/sync');
+  const [full] = await bw.decryptVault({ profile: now.profile, ciphers: [now.ciphers.find((x) => x.id === raw.id)] }, r.userKey, null, true);
+  assert.deepEqual(full.fields, [{ type: 0, name: 'pin', value: '1234' }]);
+  await bw.saveCipher(s, r.userKey, full, { ...full, fields: [...full.fields, { type: 1, name: 'API key', value: 'sk-1' },
+    { type: 2, name: 'Admin', value: 'true' }, { type: 3, name: 'Login', linkedId: 100 }] });
+  const back = await bw.api(s, '/sync');
+  const [again] = await bw.decryptVault({ profile: back.profile, ciphers: [back.ciphers.find((x) => x.id === raw.id)] }, r.userKey, null, true);
+  assert.deepEqual(again.fields, [{ type: 0, name: 'pin', value: '1234' }, { type: 1, name: 'API key', value: 'sk-1' },
+    { type: 2, name: 'Admin', value: 'true' }, { type: 3, name: 'Login', value: '', linkedId: 100 }]);
+  assert.deepEqual([again.password, again.passkeys?.length], ['pw2', 1], 'the rest of the login is unchanged');
+  console.log('custom fields edit ok');
+}
 
 // Item with its own cipher key
 const ck = crypto.getRandomValues(new Uint8Array(64));

@@ -7,7 +7,7 @@ import * as bw from './bw.js';
 import { withStateLock } from './coord.js';
 
 export const SYNC_EVERY_MIN = 5;
-export const strip = ({ raw, key, notes, ...listFields }) => (notes ? { ...listFields, note: true } : listFields);
+export const strip = ({ raw, key, notes, fields, ...listFields }) => (notes ? { ...listFields, note: true } : listFields);
 
 // The account's on-disk sync data (raw encrypted ciphers, profile keys, equivalent domains). Shared with popup.js.
 export async function storeSync(local, accountId, sync) {

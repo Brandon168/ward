@@ -72,6 +72,10 @@ Loading from a specific commit means nothing changes until you pull and reload o
   Cards, Identities, Notes). The selected row (this site's best match when Ward opens; any row you click) keeps its
   one-click actions visible; other rows show them on hover: copy username, password, one-time code (a pie that
   empties as the code runs out), card number and security code, email, plus Fill where it can fill. Clicking a row only selects it.
+- Item details (the row's › button): every value on one screen, passwords and hidden fields masked until you show
+  them, a copy button per value, open the website; Edit is one click from there.
+- Custom fields (text, hidden such as API keys, checkbox, linked) on logins, cards, identities and notes: shown in
+  the details, added, edited and removed in the edit form.
 - Right-click a field on a page: Ward > a login for this site > Fill / Copy username / password / one-time code.
 - Copied passwords, codes and card details are cleared from the clipboard after 30 s (setting).
 - Settings: Account (log out per vault), saving offers, copying, locking, Touch ID, appearance (follows the system).

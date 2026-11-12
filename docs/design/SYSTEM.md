@@ -49,6 +49,13 @@ colour in a view. The only literal colours are the avatar palette and the vault 
 - Forms: `label` wraps its input (`field()`); checkboxes are `label.check`. A field with several controls (a login's URLs)
   is a `div.field` (same look as a label): its caption in a `span`, one `.inline` row per entry (input, then a `select`
   with an `ariaLabel`, then a `.quiet` remove icon), then a `.link` add button ("Add URL").
+- Item details (`itemView()`): `.details` holds `.kv` rows: `.info` with a `small` caption over `.val`, the value in full
+  (wrapped, never cut off; `.mono` for secrets and codes), then `.actions` icon buttons in the list's style: eye
+  (show/hide, secrets start masked, `.masked`), launch (open a website), copy. Read-only facts (a linked field, a
+  passkey) are rows without actions. One action row closes the view: Fill (primary, when it can fill), Edit, Back.
+- Custom fields in a form (`fieldsEditor()`): a `div.field` like URLs, one `.cfield` per field: an `.inline` row with
+  the name, a kind `select` (Text, Hidden, Checkbox, Linked) and a `.quiet` remove icon, the value under it; entries
+  are divided by a `--line` rule. "Add field" is the `.link` at the end.
 - The brand bar `.bar .brand` ("Ward") tops the main list and every extension window.
 
 ## Patterns

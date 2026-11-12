@@ -90,7 +90,16 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     web vault shows the same match detection. Add URL adds a row, × removes one; an invalid regular expression is
     refused on Save.
 
-19. **Locked menu and window placement (0.7.4)**: lock Ward, click a login field: the menu shows "Ward is
+19. **Item details and custom fields (0.8.0)**: select a login and press › (or Enter on an item Ward can't fill here):
+    every value shows without the edit form. Password, one-time code and hidden fields read •••• until the eye (or a
+    click on the dots) shows them; each copy button turns ✓, and a copied password or hidden field is cleared after
+    30 s. The launch icon opens the website in a new tab. Edit opens the form; Cancel comes back to the details, Save
+    comes back with the new values. In the form, Add field: name, kind (Text, Hidden, Checkbox, Linked) and value;
+    save, then check the web vault (or the Bitwarden app) shows the same fields. Remove one with ×. Do the same on a
+    card, an identity and a note. An item shared with "Hide passwords" shows its hidden fields as "Hidden by your
+    organization" and an edit keeps them.
+
+20. **Locked menu and window placement (0.7.4)**: lock Ward, click a login field: the menu shows "Ward is
     locked" (no logins, no usernames); clicking it opens Ward's popup (or a small Ward window) to unlock. With no
     vault added it says "Sign in to Ward". Unlocked again, the field shows the logins as before. Start a passkey
     sign-in or a save offer: Ward's window opens at the top right of the browser window, not the screen's corner;

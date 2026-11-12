@@ -33,6 +33,9 @@
   unlock. Ward's windows (passkey, save offers, Touch ID, security key) open at the browser window's top right (0.7.4)
 - Fix: after unlocking with Touch ID, the in-page menu still said "Ward is locked" until the popup had loaded the
   vault; the service worker now opens the vault's cache itself (0.7.5)
+- Item details: the row's open button (or Enter where it can't fill) shows every value without the edit form, secrets
+  masked until shown, a copy button per value, open website; Edit from there. Custom fields (text, hidden, checkbox,
+  linked) shown and editable for every item type; values an organization hides stay hidden and unchanged (0.8.0)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover

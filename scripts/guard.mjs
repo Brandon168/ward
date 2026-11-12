@@ -28,7 +28,8 @@ const PAGE_SCRIPTS = ['page.js', 'bridge.js', 'inpage.js'];
 // 240 -> 245 KB (2026-11-06): passkey autofill in the in-page menu (0.7.0).
 // 245 -> 246 KB (2026-11-08): the in-page menu hides presses from the page so popovers stay open (0.7.3).
 // 246 -> 249 KB (2026-11-08): the locked row in the in-page menu, Ward's windows placed under the toolbar icon (0.7.4).
-const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 249_000 };
+// 245 -> 262 KB (2026-11-08): item details view and custom fields (0.8.0); the Open website button is the new tabs.create.
+const BUDGET = { pageScriptsBytes: 30_000, firstPartyJsBytes: 262_000 };
 
 const read = (f) => readFileSync(join(root, f), 'utf8');
 const sha256 = (f) => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');

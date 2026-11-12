@@ -35,12 +35,38 @@ const handoffs = {
     hash: 'aGFzaA==', key, need: '2fa', provider: 7, expires: later,
     providers: [{ id: 7, data: { challenge: 'Y2g' } }, { id: 0, data: null }, { id: 1, data: { Email: 'm*@example.com' } }] } },
 }[view] || {};
+const localData = { accounts: [{ id: 'v', server: 'https://bw.example', email: 'me@example.com', label: 'Personal', lastSync: Date.now() }],
+  used: { 'v:am': Date.now() - 1000, 'v:vi': Date.now() - 2000, 'v:ho': Date.now() - 3000 } };
+// The items' stored (encrypted) ciphers, which the details view and edit form open: encrypted here with the sample
+// all-zero key by the popup's own bw.js (preview.mjs calls this once the modules load).
+window.wardPreviewSeed = async (bw) => {
+  const k = new Uint8Array(64), e = (x) => (x ? bw.encrypt(String(x), k) : null);
+  const fields = async (list) => Promise.all(list.map(async ([type, name, value, linkedId]) => ({ type, name: await e(name), value: await e(value), linkedId: linkedId ?? null })));
+  const extra = {
+    gh: { notes: 'Recovery codes are in the safe.', fields: [[0, 'Org', 'acme-inc'], [1, 'API token', 'ghp_preview0123456789abcdefABCDEF'], [2, 'Admin', 'true'], [3, 'Login email', null, 100]] },
+    vi: { fields: [[1, 'PIN', '4321']] },
+    wf: { notes: 'Network: Home-5G\nPassword: correct-horse-battery' },
+  };
+  localData['v:profile'] = { privateKey: await e('preview') };
+  for (const i of list) {
+    const x = extra[i.id] || {};
+    const raw = { id: i.id, type: i.type || 1, revisionDate: '2026-11-08T00:00:00Z', name: await e(i.name), notes: await e(x.notes), reprompt: i.reprompt ? 1 : 0,
+      fields: x.fields ? await fields(x.fields) : null };
+    if (raw.type === 1) raw.login = { username: await e(i.username), password: await e(i.password), totp: await e(i.totp),
+      uris: await Promise.all(i.uris.map(async (u) => ({ uri: await e(u), match: null }))) };
+    if (i.card) raw.card = Object.fromEntries(await Promise.all(Object.entries(i.card).map(async ([f, v]) => [f, await e(v)])));
+    if (i.identity) raw.identity = Object.fromEntries(await Promise.all(Object.entries(i.identity).map(async ([f, v]) => [f, await e(v)])));
+    localData[`v:c:${i.id}`] = raw;
+  }
+  if (view !== 'item') return;
+  for (let n = 0; n < 50 && !document.querySelector('.item.sel button[title^="Open"]'); n++) await new Promise((r) => setTimeout(r, 50));
+  document.querySelector('.item.sel button[title^="Open"]')?.click();
+};
 window.chrome = {
-  storage: { local: area({ accounts: [{ id: 'v', server: 'https://bw.example', email: 'me@example.com', label: 'Personal', lastSync: Date.now() }],
-    used: { 'v:am': Date.now() - 1000, 'v:vi': Date.now() - 2000, 'v:ho': Date.now() - 3000 } }),
+  storage: { local: area(localData),
     session: area({ 'v:key': key, 'v:list': JSON.stringify(list), ...handoffs }), onChanged: { addListener() {} } },
   tabs: { query: async () => [{ id: 1, url: 'https://github.com/login', windowId: 1 }], get: async () => ({ id: 1, url: 'https://github.com/login', windowId: 1 }),
-    sendMessage: async () => null },
+    sendMessage: async () => null, create: async () => ({}) },
   runtime: { sendMessage: async () => null, getManifest: () => ({ version: 'preview' }) },
   scripting: { executeScript: async () => [] }, action: { openPopup: async () => {} },
   windows: { create: async () => {}, update: async () => {}, getCurrent: async () => ({ id: 1 }), getLastFocused: async () => ({ id: 1 }) },

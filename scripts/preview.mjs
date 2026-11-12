@@ -33,6 +33,7 @@ const VIEWS = [
   ['ward-save-update.html', 'Ward: update password', 'save-update', '#save=demo'],
   ['ward-save-card.html', 'Ward: save card', 'save-card', '#save=demo'],
   ['ward-twostep.html', 'Ward: two-step login', 'twostep', ''],
+  ['ward-item.html', 'Ward: item details', 'item', ''], // the popup, opened on GitHub's details
 ];
 mkdirSync(join(root, 'preview'), { recursive: true });
 for (const [file, name, view, hash] of VIEWS) {
@@ -56,6 +57,7 @@ for (const [file, name, view, hash] of VIEWS) {
     urls[name] = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
   }
   import(urls['popup.js']).catch((e) => (document.body.textContent = 'Preview failed: ' + e));
+  import(urls['bw.js']).then((bw) => window.wardPreviewSeed(bw)); // the same module instance the popup uses
 </script>
 </head>
 <body><main id="app"></main></body>
