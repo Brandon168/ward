@@ -51,9 +51,9 @@ colour in a view. The only literal colours are the avatar palette and the vault 
   with an `ariaLabel`, then a `.quiet` remove icon), then a `.link` add button ("Add URL").
 - Item details (`itemView()`): `.details` holds `.kv` rows: `.info` with a `small` caption over `.val`, the value in full
   (wrapped, never cut off; `.mono` for secrets and codes), then `.actions` icon buttons in the list's style: eye
-  (show/hide, secrets start masked, `.masked`), launch (open a website), copy. Read-only facts (a linked field, a
+  (show/hide, secrets start masked, `.masked`), globe (open a website), copy. Read-only facts (a linked field, a
   passkey) are rows without actions. One action row closes the view: Fill (primary, when it can fill), Edit, Back.
-  The title sits in a `.bar` with a `.bar` icon button at the right: the window icon, "Open in a new window"
+  The title sits in a `.bar` with a `.bar` icon button at the right: the pop-out icon (`launch`, a square with an arrow), "Open in a new window"
   (`popOut()`). That window (`#item=`) is an extension window: brand bar, the item's name as the title (and as the
   window's title, "GitHub · Ward", so the window switcher names it), the same rows, then Edit and Close. It has no
   Fill: the page in front of it may be another site's.

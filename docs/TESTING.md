@@ -93,7 +93,7 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
 19. **Item details and custom fields (0.8.0)**: select a login and press › (or Enter on an item Ward can't fill here):
     every value shows without the edit form. Password, one-time code and hidden fields read •••• until the eye (or a
     click on the dots) shows them; each copy button turns ✓, and a copied password or hidden field is cleared after
-    30 s. The launch icon opens the website in a new tab. Edit opens the form; Cancel comes back to the details, Save
+    30 s. The globe icon opens the website in a new tab. Edit opens the form; Cancel comes back to the details, Save
     comes back with the new values. In the form, Add field: name, kind (Text, Hidden, Checkbox, Linked) and value;
     save, then check the web vault (or the Bitwarden app) shows the same fields. Remove one with ×. Do the same on a
     card, an identity and a note. An item shared with "Hide passwords" shows its hidden fields as "Hidden by your
@@ -107,10 +107,10 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     Unlock with Touch ID from there (0.7.5): close the popup at once and click the field: the logins show, not "Ward
     is locked".
 
-21. **Item details in a window (0.8.1)**: open a login's details and press the window button at the top right: a Ward
+21. **Item details in a window (0.8.1)**: open a login's details and press the pop-out button (square with an arrow) at the top right: a Ward
     window opens with the same details (brand bar, Edit and Close, no Fill), titled with its name ("GitHub · Ward") in
     the window switcher, and the popup closes. Copy the username, click into a page and paste, switch back (Alt+Tab or
-    Cmd+\`) and copy the password: the window is still there. The launch icon opens the site in the browser window and
+    Cmd+\`) and copy the password: the window is still there. The globe icon opens the site in the browser window and
     the Ward window stays. Edit the login in the toolbar popup (or let a sync change it): the window shows the new
     values. Move the window, close it, open another: it opens where you left it. Lock Ward (or let it auto-lock): the
     window closes. A re-prompt login asks for the master password in the popup only, not again in the window. Reloading

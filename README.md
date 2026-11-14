@@ -73,7 +73,7 @@ Loading from a specific commit means nothing changes until you pull and reload o
   one-click actions visible; other rows show them on hover: copy username, password, one-time code (a pie that
   empties as the code runs out), card number and security code, email, plus Fill where it can fill. Clicking a row only selects it.
 - Item details (the row's › button): every value on one screen, passwords and hidden fields masked until you show
-  them, a copy button per value, open the website; Edit is one click from there. The window button at the top opens
+  them, a copy button per value, open the website; Edit is one click from there. The pop-out button at the top opens
   the details in a window of their own that stays open while you copy values into a page one by one (switch with
   Alt+Tab or Cmd+\`); it closes when you close it or Ward locks, and opens where you last moved it.
 - Custom fields (text, hidden such as API keys, checkbox, linked) on logins, cards, identities and notes: shown in
