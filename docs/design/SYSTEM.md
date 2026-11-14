@@ -9,7 +9,7 @@ one-off. The chosen direction is mockup option E (`ward-ui-mockups.html`); `ward
 | Surface | Where | Styles |
 | --- | --- | --- |
 | Toolbar popup: vault list, edit, settings, vaults, unlock | `popup.js` views | `popup.css` |
-| Extension windows background.js opens for a page: passkey sign-in and save, login/card save offers, Touch ID | `popup.js` (`#pk=`, `#save=`, `#touch=`), `body.window` | `popup.css` |
+| Extension windows background.js opens for a page: passkey sign-in and save, login/card save offers, Touch ID; an item's details in their own window | `popup.js` (`#pk=`, `#save=`, `#touch=`, `#item=`), `body.window` | `popup.css` |
 | In-page UI: login menu under fields, "found a login to save" bar | `inpage.js`, closed shadow roots | `THEME` in `inpage.js`, a copy of the popup's tokens |
 
 All of them use the same tokens, type, avatars, rows and buttons. There is no third look.
@@ -53,6 +53,10 @@ colour in a view. The only literal colours are the avatar palette and the vault 
   (wrapped, never cut off; `.mono` for secrets and codes), then `.actions` icon buttons in the list's style: eye
   (show/hide, secrets start masked, `.masked`), launch (open a website), copy. Read-only facts (a linked field, a
   passkey) are rows without actions. One action row closes the view: Fill (primary, when it can fill), Edit, Back.
+  The title sits in a `.bar` with a `.bar` icon button at the right: the window icon, "Open in a new window"
+  (`popOut()`). That window (`#item=`) is an extension window: brand bar, the item's name as the title (and as the
+  window's title, "GitHub · Ward", so the window switcher names it), the same rows, then Edit and Close. It has no
+  Fill: the page in front of it may be another site's.
 - Custom fields in a form (`fieldsEditor()`): a `div.field` like URLs, one `.cfield` per field: an `.inline` row with
   the name, a kind `select` (Text, Hidden, Checkbox, Linked) and a `.quiet` remove icon, the value under it; entries
   are divided by a `--line` rule. "Add field" is the `.link` at the end.
@@ -64,8 +68,9 @@ colour in a view. The only literal colours are the avatar palette and the vault 
   bar, a title that names the site ("Sign in to github.com", "Save this login for news.example?"), the choices as
   rows, one action row, and `fitWindow()` to size the window to the content. A prompt that acts for a page always
   names that page's site: that is both consistency and security.
-  They open at the top right of the browser window, under the toolbar icon (`wardWindow()` in background.js; the
-  Touch ID window from popup.js does the same).
+  They open at the top right of the browser window, under the toolbar icon (`wardWindow()` in background.js;
+  `openWindow()` in popup.js for the Touch ID and item windows). The item window, which stays open, opens where the
+  user last moved one instead (kept in the extension's `localStorage`, not `chrome.storage`).
 - In-page UI stays minimal and points to Ward's own windows for anything sensitive; it reuses the row, avatar and
   primary-button look from the popup. Its rows act on a genuine click only (`genuine()` in `inpage.js`): a login row
   fills, a passkey row signs in to the page's own site (like Fill; no window). When Ward holds the page's passkey

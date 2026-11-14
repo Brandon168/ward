@@ -34,6 +34,7 @@ const VIEWS = [
   ['ward-save-card.html', 'Ward: save card', 'save-card', '#save=demo'],
   ['ward-twostep.html', 'Ward: two-step login', 'twostep', ''],
   ['ward-item.html', 'Ward: item details', 'item', ''], // the popup, opened on GitHub's details
+  ['ward-item-window.html', 'Ward: item details in a window', 'item-window', '#item=demo'], // its New window button
 ];
 mkdirSync(join(root, 'preview'), { recursive: true });
 for (const [file, name, view, hash] of VIEWS) {

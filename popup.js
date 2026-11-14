@@ -27,8 +27,9 @@ const kindName = (t) => KINDS.find(([k]) => k === t)?.[2] || 'item';
 const guarded = (i, fn) => (i.reprompt ? repromptView(i, fn) : fn());
 // Opened by background.js for a page: #pk=<key> a passkey request or #save=<key>
 // an extension-owned save confirmation window. pk / sv are hand-offs from session storage.
+// #item=<key>: an item's details in a window of their own (popOut); popped is its hand-off.
 const [mode, modeKey] = location.hash.slice(1).split('=');
-let pk, sv;
+let pk, sv, popped;
 if (mode) document.body.classList.add('window'); // a window of its own, not the toolbar popup
 let saveCancelled = false;
 let saveTimer;
@@ -167,6 +168,11 @@ async function start() {
     if (!Number.isInteger(sv.tabId) || window !== top) return closeSave();
     tab = { id: sv.tabId, url: sv.origin };
   } else if (window !== top) return; // a web page framing the full popup gets nothing
+  if (mode === 'item') { // one use: a reload or a copied address opens nothing
+    popped = s[`item:${modeKey}`];
+    await session.remove(`item:${modeKey}`);
+    if (typeof popped?.a !== 'string' || !/^[\w-]{1,64}$/.test(popped.a) || typeof popped.id !== 'string') return window.close();
+  }
   pageUrl = /^https?:\/\//i.test(tab?.url) ? tab.url : null;
   host = pageUrl && new URL(pageUrl).hostname;
   if (!st.accounts && st.protectedKey) s = await migrate();
@@ -194,6 +200,7 @@ async function start() {
     }
   });
   if (mode === 'touch') return touchView(modeKey);
+  if (mode === 'item') return itemWindow();
   if (!mode && s.twostep) return twoStepView(s.twostep); // a login waiting for its second step
   // The save offer is a tiny extension-owned window. It must never fall
   // through to the full login/unlock/vault views when its account closed.
@@ -764,6 +771,7 @@ const ICONS = {
   gear: 'M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
   person: 'M12 5a3 3 0 1 0 0 6a3 3 0 0 0 0-6M6 19a6 6 0 0 1 12 0',
   note: 'M6 3h9l4 4v14H6zM9 12h7M9 16h5',
+  window: 'M3 5h18v14H3zM3 9h18M6 7h0M8.5 7h0',
   dice: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2M8.5 8.5h0M15.5 8.5h0M12 12h0M8.5 15.5h0M15.5 15.5h0',
 };
 function icon(name, size = 16) {
@@ -815,6 +823,7 @@ setInterval(() => document.querySelectorAll('.totp').forEach((b) => !b.classList
 let selectedKey = null;
 const searchText = new WeakMap(); // item -> its search text, built on first search
 function vaultView() {
+  if (mode === 'item') return window.close(); // the item window has no list: Back, a delete or a failed load close it
   if (mode === 'save' && !sv) return closeSave();
   if (pk) return passkeyView();
   if (sv) return saveView();
@@ -1239,6 +1248,7 @@ function fieldsEditor(list, orgHidden, t) {
 // click on the dots) shows them, each value has its copy button, and Edit opens the form. opts.fill: Fill this page.
 function itemView(item, opts = {}) {
   if (mode === 'save') return closeSave();
+  const win = mode === 'item'; // in its own window (popOut): no Fill (the page in front may be another site's)
   const t = typeOf(item), c = item.card || {}, d = item.identity || {}, orgHidden = item.viewPassword === false;
   const rows = [];
   const MASK = '••••••••••';
@@ -1265,7 +1275,8 @@ function itemView(item, opts = {}) {
       val.classList.add('masked');
       acts.push(eye);
     }
-    if (link) acts.push(btn('launch', `Open ${value} in a new tab`, () => chrome.tabs.create({ url: link }).then(() => window.close(), (e) => status(e.message))));
+    if (link) acts.push(btn('launch', `Open ${value} in a new tab`, () => chrome.tabs.create({ url: link })
+      .then((tb) => (win ? chrome.windows.update(tb.windowId, { focused: true }).catch(() => {}) : window.close()), (e) => status(e.message))));
     acts.push(btn('copy', `Copy ${label.toLowerCase()}`, (b) => copy(b, copyValue ?? value, !!secret).catch((e) => status(e.message))));
     rows.push(h('div', { className: 'kv' }, h('div', { className: 'info' }, h('small', {}, label), val), h('div', { className: 'actions' }, ...acts)));
   };
@@ -1325,12 +1336,38 @@ function itemView(item, opts = {}) {
   const self = (fresh) => (fresh ? loadItem(item).then((f) => itemView(f, opts), () => vaultView()) : itemView(item, opts));
   const fillBtn = opts.fill && h('button', { className: 'primary', onclick: opts.fill }, 'Fill');
   const editBtn = !readOnly && h('button', { className: opts.fill ? '' : 'primary', onclick: () => editView(item, self) }, 'Edit');
-  render(title(item.name || '(no name)'),
+  const name = item.name || '(no name)', pop = 'Open in a new window, to copy values one by one';
+  const head = win ? promptHead(name) : [h('div', { className: 'bar' }, title(name),
+    h('button', { title: pop, ariaLabel: pop, onclick: () => popOut(item).catch((e) => status(e.message)) }, icon('window', 17)))];
+  if (win) (document.title = `${name} · Ward`), (popped.head = head[0]); // the title names it in the window switcher
+  render(...head,
     (accounts.length > 1 || readOnly) && h('p', { className: 'muted' }, accounts.length > 1 && vaultTag(item.a), readOnly && (accounts.length > 1 ? ' · read-only' : 'Read-only')),
     rows.length ? h('div', { className: 'details' }, ...rows) : h('p', { className: 'empty' }, 'Nothing saved in this item yet.'),
-    h('div', { className: 'inline' }, fillBtn, editBtn, h('button', { onclick: vaultView }, 'Back')),
+    h('div', { className: 'inline' }, fillBtn, editBtn, h('button', { onclick: vaultView }, win ? 'Close' : 'Back')),
     h('p', { id: 'status', className: 'err' }));
   (fillBtn || editBtn || app.querySelector('button'))?.focus();
+}
+
+// Ward: an item's details in a window of their own (#item=), which stays open beside the page while values are copied
+// one by one. The popup hands over which item (its re-prompt already answered) in session storage. The window follows
+// edits and syncs, and closes when the item is deleted or its vault locks. It opens where the last one was moved to
+// (kept in localStorage: chrome.storage writes make the service worker rebuild its vault cache).
+async function popOut(item) {
+  const key = crypto.randomUUID();
+  let at = null;
+  try { at = JSON.parse(localStorage.wardPopout || 'null'); } catch {}
+  if (![at?.left, at?.top, at?.width].every(Number.isFinite)) at = null;
+  await session.set({ [`item:${key}`]: { a: item.a, id: item.id } });
+  await openWindow(`item=${key}`, at ? Math.min(Math.max(at.width, 340), 900) : 420, 520, at && { left: at.left, top: at.top });
+}
+async function itemWindow() {
+  if (!keys[popped.a]) return window.close();
+  try { itemView(await loadItem(popped)); } catch { return window.close(); }
+  await fitWindow();
+  const me = await chrome.windows.getCurrent().catch(() => null);
+  // remembered once moved or resized by hand, so an untouched window keeps opening under the toolbar icon
+  if (me) chrome.windows.onBoundsChanged?.addListener((w) => w.id === me.id && (w.left !== me.left || w.top !== me.top || w.width !== me.width)
+    && (localStorage.wardPopout = JSON.stringify({ left: w.left, top: w.top, width: w.width })));
 }
 
 // back: where Cancel goes, and (with true) where a save goes; the item's details when the form was opened from there.
@@ -1484,16 +1521,19 @@ function closeSave() {
   } else if (mode === 'save') window.close();
 }
 
-// --- Touch ID unlock (Ward, experimental) -------------------------------------------------------------------
-// WebAuthn runs in its own small window: the toolbar popup closes as soon as the system prompt takes focus.
-async function openTouch(kind) {
-  // top right of the browser window, under the toolbar icon (as background.js near()), not the screen's corner
+// Ward's own windows open at the top right of the browser window, under the toolbar icon (as background.js
+// wardWindow), not the screen's corner; or at `at`. Bounds mostly off screen fail: then Chrome places the window.
+async function openWindow(hash, width, height, at) {
   const w = await chrome.windows.getCurrent().catch(() => null);
-  const o = { url: `popup.html#touch=${kind}`, type: 'popup', width: 420, height: 330, focused: true };
-  const at = w && Number.isFinite(w.left) && w.state !== 'minimized' ? { left: Math.max(w.left, w.left + w.width - 436), top: w.top + 72 } : {};
-  await chrome.windows.create({ ...o, ...at }).catch(() => chrome.windows.create(o)); // mostly off screen: Chrome places it
+  const o = { url: `popup.html#${hash}`, type: 'popup', width, height, focused: true };
+  at ||= w && Number.isFinite(w.left) && w.state !== 'minimized' ? { left: Math.max(w.left, w.left + w.width - width - 16), top: w.top + 72 } : {};
+  await chrome.windows.create({ ...o, ...at }).catch(() => chrome.windows.create(o));
   window.close();
 }
+
+// --- Touch ID unlock (Ward, experimental) -------------------------------------------------------------------
+// WebAuthn runs in its own small window: the toolbar popup closes as soon as the system prompt takes focus.
+const openTouch = (kind) => openWindow(`touch=${kind}`, 420, 330);
 
 // Does this key open the vault? The profile's private key and the cached list are both MAC-checked EncStrings.
 async function keyFits(a, key) {
@@ -1580,6 +1620,10 @@ async function touchView(kind) {
 
 // A lock/removal in another popup revokes this window's in-memory keys and any hand-off UI.
 chrome.storage.onChanged.addListener((changes, area) => {
+  // the item window shows its item as saved now: an edit or sync elsewhere redraws it (not while its edit form is open)
+  const c = popped && area === 'local' && changes[`${popped.a}:c:${popped.id}`];
+  if (c) return c.newValue ? c.newValue.revisionDate !== c.oldValue?.revisionDate && app.firstChild === popped.head
+    && loadItem(popped).then((i) => itemView(i), () => window.close()) : window.close();
   if (area !== 'session') return;
   const has = (key) => Object.prototype.hasOwnProperty.call(changes, key);
   // the security key window answered while this popup stayed open: finish (or show why not) right here
@@ -1591,6 +1635,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     .map(([k]) => k.slice(0, k.lastIndexOf(':'))))];
   if (!removed.length) return;
   for (const id of removed) { delete keys[id]; delete lists[id]; }
+  if (mode === 'item') { if (!keys[popped?.a]) window.close(); return; } // its vault locked
   merge();
   if (pk) answer(CANCEL);
   else if (mode === 'save') closeSave();

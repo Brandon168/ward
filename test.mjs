@@ -861,7 +861,7 @@ function makePopup(hash, initial = {}, options = {}) {
   const listeners = [];
   const notify = async (changes, area) => { for (const fn of [...listeners]) await fn(changes, area); };
   const local = popupStorage('local', initial.local, notify), session = popupStorage('session', initial.session, notify);
-  const sent = [], runtimeMessages = [], parentMessages = [];
+  const sent = [], runtimeMessages = [], parentMessages = [], windowsCreated = [];
   const state = { closed: false };
   const app = popupElement('main');
   const document = {
@@ -902,7 +902,8 @@ function makePopup(hash, initial = {}, options = {}) {
         return options.onRuntime ? options.onRuntime(message) : {};
       },
     },
-    windows: { update: async () => {} },
+    windows: { update: async () => {}, getCurrent: async () => ({ id: 1, left: 0, top: 0, width: 1200, height: 800, state: 'normal' }),
+      create: async (o) => (windowsCreated.push(o), { id: 2 }) },
   };
   const context = {
     window, top: window.top, parent: window.parent, location: { hash }, document, chrome,
@@ -913,7 +914,7 @@ function makePopup(hash, initial = {}, options = {}) {
     addEventListener: () => {},
   };
   vm.runInNewContext(popupProgram, context, { filename: 'popup-harness-popup.js' });
-  return { local, session, sent, runtimeMessages, parentMessages, app, context, api: context.__popup,
+  return { local, session, sent, runtimeMessages, parentMessages, windowsCreated, app, context, api: context.__popup,
     get closed() { return state.closed; } };
 }
 
@@ -987,6 +988,66 @@ for (const [lastSync, expectSync] of [[Date.now() - 6 * 60e3, true], [Date.now()
   if (expectSync) {
     const redrawn = findById(popup.app, 'search');
     assert.ok(redrawn !== search && redrawn.focused && redrawn.value === 'fresh', 'the redraw keeps the search text and focus');
+  }
+}
+
+// An item's details in a window of their own (#item=): the popup's New window button hands the item over in session
+// storage once; the window shows it with Close instead of Fill and Back, follows changes, and closes on lock or delete.
+{
+  const k = new Uint8Array(64), e = (x) => bw.encrypt(x, k);
+  const cipher = async (username, revisionDate) => ({ id: 'cipher', type: 1, revisionDate, reprompt: 0, name: await e('Bank'),
+    login: { username: await e(username), password: await e('pw-secret'), uris: [{ uri: await e('https://bank.example'), match: null }] } });
+  const stored = async () => ({ accounts: [popupAccount('acct', 'Vault')], 'acct:profile': { privateKey: await e('x'), organizations: [] },
+    'acct:c:cipher': await cipher('first-user', '2026-11-01T00:00:00Z') });
+  const listed = JSON.stringify(popupList('acct', { id: 'cipher', name: 'Bank', username: 'first-user', uris: ['https://bank.example'] }));
+  const findTitle = (node, re) => node?.tagName === 'BUTTON' && re.test(node.title || '') ? node
+    : (node?.children || []).reduce((f, c) => f || findTitle(c, re), null);
+  const settle = async (done) => { for (let i = 0; i < 50 && !done(); i++) await new Promise((r) => setTimeout(r, 5)); };
+
+  // the popup's details view opens the window and hands over just the item's ids
+  const popup = makePopup('', { local: await stored(), session: { 'acct:key': popupKey, 'acct:list': listed } },
+    { tabs: [{ id: 9, url: 'https://bank.example/login' }] }); // its row starts selected, actions built
+  await popup.api.start();
+  findTitle(popup.app, /^Open · Bank/).onclick({ stopPropagation() {} });
+  await settle(() => findTitle(popup.app, /new window/));
+  await findTitle(popup.app, /new window/).onclick();
+  await settle(() => popup.windowsCreated.length);
+  const [opened] = popup.windowsCreated;
+  assert.match(opened?.url || '', /^popup\.html#item=[\w-]{36}$/, 'New window opens the details window');
+  assert.equal(opened.type, 'popup');
+  const handoff = (await popup.session.get(`item:${opened.url.split('=')[1]}`))[`item:${opened.url.split('=')[1]}`];
+  assert.equal(JSON.stringify(handoff), '{"a":"acct","id":"cipher"}', 'the hand-off names the item and holds no secrets');
+  assert.equal(popup.closed, true, 'the toolbar popup closes behind the new window');
+
+  const win = makePopup('#item=h1', { local: await stored(), session: { 'acct:key': popupKey, 'acct:list': listed, 'item:h1': handoff } });
+  await win.api.start();
+  assert.ok(!win.closed && textOf(win.app).includes('first-user'), 'the window shows the item');
+  assert.equal(win.context.document.title, 'Bank · Ward', 'its title names the item in the window switcher');
+  assert.ok(findButton(win.app, 'Close') && !findButton(win.app, 'Fill') && !findButton(win.app, 'Back'), 'Close, no Fill or Back');
+  assert.equal(findTitle(win.app, /new window/), null, 'no New window button inside the window');
+  assert.equal((await win.session.get('item:h1'))['item:h1'], undefined, 'the hand-off is used once');
+  await win.local.set({ 'acct:c:cipher': await cipher('second-user', '2026-11-02T00:00:00Z') });
+  await settle(() => textOf(win.app).includes('second-user'));
+  assert.ok(textOf(win.app).includes('second-user'), 'an edit or sync elsewhere redraws the window');
+  await win.session.set({ unrelated: 1 });
+  assert.equal(win.closed, false, 'unrelated writes leave it open');
+  await win.session.remove('acct:key');
+  assert.equal(win.closed, true, 'locking its vault closes the window');
+
+  const gone = makePopup('#item=h2', { local: await stored(), session: { 'acct:key': popupKey, 'acct:list': listed, 'item:h2': handoff } });
+  await gone.api.start();
+  await gone.local.remove('acct:c:cipher');
+  assert.equal(gone.closed, true, 'deleting the item closes its window');
+  const closing = makePopup('#item=h3', { local: await stored(), session: { 'acct:key': popupKey, 'acct:list': listed, 'item:h3': handoff } });
+  await closing.api.start();
+  findButton(closing.app, 'Close').onclick();
+  assert.equal(closing.closed, true, 'Close closes the window');
+  for (const [hash, session, why] of [['#item=none', {}, 'without a hand-off (a reload, a typed address)'],
+    ['#item=bad', { 'item:bad': { a: 'acct' } }, 'with a malformed hand-off'],
+    ['#item=locked', { 'item:locked': handoff }, 'while its vault is locked']]) {
+    const w = makePopup(hash, { local: await stored(), session: { 'acct:list': listed, ...(hash === '#item=locked' ? {} : { 'acct:key': popupKey }), ...session } });
+    await w.api.start();
+    assert.equal(w.closed, true, `the item window opens nothing ${why}`);
   }
 }
 

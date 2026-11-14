@@ -26,6 +26,8 @@ const handoffs = {
   'passkey-save': { 'pk:demo': { id: 'r1', kind: 'create', tabId: 1, origin: 'https://vercel.com', rpId: 'vercel.com', expires: later,
     options: { challenge: 'Y2hhbGxlbmdl', rp: { id: 'vercel.com', name: 'Vercel' }, user: { id: 'dXNlcg', name: 'brandon@example.com' },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }] } } },
+  // the details window the item view's New window button opens (popup.js popOut)
+  'item-window': { 'item:demo': { a: 'v', id: 'gh' } },
   'save': { 'save:demo': { kind: 'add', tabId: 1, origin: 'https://news.example', username: 'ann@example.com', password: 'pw7', expires: later } },
   'save-update': { 'save:demo': { kind: 'update', tabId: 1, origin: 'https://amazon.com', a: 'v', id: 'am', username: 'ann@example.com', password: 'pw8', expires: later } },
   'save-card': { 'save:demo': { kind: 'form', tabId: 1, origin: 'https://shop.example', expires: later,
@@ -37,6 +39,9 @@ const handoffs = {
 }[view] || {};
 const localData = { accounts: [{ id: 'v', server: 'https://bw.example', email: 'me@example.com', label: 'Personal', lastSync: Date.now() }],
   used: { 'v:am': Date.now() - 1000, 'v:vi': Date.now() - 2000, 'v:ho': Date.now() - 3000 } };
+// Reads of local storage wait for the sample ciphers below (the item window opens one at once).
+let seeded;
+const ready = new Promise((r) => (seeded = r));
 // The items' stored (encrypted) ciphers, which the details view and edit form open: encrypted here with the sample
 // all-zero key by the popup's own bw.js (preview.mjs calls this once the modules load).
 window.wardPreviewSeed = async (bw) => {
@@ -58,12 +63,13 @@ window.wardPreviewSeed = async (bw) => {
     if (i.identity) raw.identity = Object.fromEntries(await Promise.all(Object.entries(i.identity).map(async ([f, v]) => [f, await e(v)])));
     localData[`v:c:${i.id}`] = raw;
   }
+  seeded();
   if (view !== 'item') return;
   for (let n = 0; n < 50 && !document.querySelector('.item.sel button[title^="Open"]'); n++) await new Promise((r) => setTimeout(r, 50));
   document.querySelector('.item.sel button[title^="Open"]')?.click();
 };
 window.chrome = {
-  storage: { local: area(localData),
+  storage: { local: { ...area(localData), get: async (k) => (await ready, area(localData).get(k)) },
     session: area({ 'v:key': key, 'v:list': JSON.stringify(list), ...handoffs }), onChanged: { addListener() {} } },
   tabs: { query: async () => [{ id: 1, url: 'https://github.com/login', windowId: 1 }], get: async () => ({ id: 1, url: 'https://github.com/login', windowId: 1 }),
     sendMessage: async () => null, create: async () => ({}) },

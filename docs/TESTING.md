@@ -107,6 +107,15 @@ After `git pull`, click the reload arrow on Ward's card in `vivaldi://extensions
     Unlock with Touch ID from there (0.7.5): close the popup at once and click the field: the logins show, not "Ward
     is locked".
 
+21. **Item details in a window (0.8.1)**: open a login's details and press the window button at the top right: a Ward
+    window opens with the same details (brand bar, Edit and Close, no Fill), titled with its name ("GitHub · Ward") in
+    the window switcher, and the popup closes. Copy the username, click into a page and paste, switch back (Alt+Tab or
+    Cmd+\`) and copy the password: the window is still there. The launch icon opens the site in the browser window and
+    the Ward window stays. Edit the login in the toolbar popup (or let a sync change it): the window shows the new
+    values. Move the window, close it, open another: it opens where you left it. Lock Ward (or let it auto-lock): the
+    window closes. A re-prompt login asks for the master password in the popup only, not again in the window. Reloading
+    the window closes it.
+
 ### Automated two-step checks
 
 - Email: run Vaultwarden with mail going to [Mailpit](https://mailpit.axllent.org/) and pass `MAILPIT`:

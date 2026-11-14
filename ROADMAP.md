@@ -36,6 +36,9 @@
 - Item details: the row's open button (or Enter where it can't fill) shows every value without the edit form, secrets
   masked until shown, a copy button per value, open website; Edit from there. Custom fields (text, hidden, checkbox,
   linked) shown and editable for every item type; values an organization hides stay hidden and unchanged (0.8.0)
+- Item details in a window of their own (the window button at the top of the details): stays open beside the page for
+  copying values one by one, follows edits and syncs, closes when Ward locks or the item is deleted, and opens where
+  it was last moved (0.8.1)
 
 ## Next
 1. Touch ID works on macOS (Vivaldi, WebAuthn PRF). Polish: prompt automatically when the popup opens locked, cover
